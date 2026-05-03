@@ -1,0 +1,7 @@
+/target
+*.log
+*.report
+*.svg
+*.folded
+*.txt
+.DS_Store
