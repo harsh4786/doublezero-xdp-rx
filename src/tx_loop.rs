@@ -27,7 +27,6 @@ use crate::{
         ETH_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE, write_eth_header, write_ip_header,
         write_udp_header,
     },
-    que_channel::{QueTracedPayload, XdpQueConsumer, XdpQuePayload},
     route::Router,
     rx_loop::xdp_verbose_trace_enabled,
     set_cpu_affinity,
@@ -356,13 +355,6 @@ impl TxPayload for TracedPayload {
     }
 }
 
-impl<const MAX: usize> TxPayload for QueTracedPayload<MAX> {
-    #[inline(always)]
-    fn trace_sig32(&self) -> Option<u32> {
-        self.trace_sig32()
-    }
-}
-
 enum TxPayloadRecvError {
     Empty,
     Disconnected,
@@ -379,24 +371,6 @@ impl TxPayloadReceiver<TracedPayload> for Receiver<TracedPayload> {
             TryRecvError::Empty => TxPayloadRecvError::Empty,
             TryRecvError::Disconnected => TxPayloadRecvError::Disconnected,
         })
-    }
-}
-
-struct QueTxPayloadReceiver {
-    consumer: XdpQueConsumer,
-    exit: Arc<AtomicBool>,
-}
-
-impl TxPayloadReceiver<XdpQuePayload> for QueTxPayloadReceiver {
-    #[inline(always)]
-    fn try_recv_payload(&mut self) -> Result<XdpQuePayload, TxPayloadRecvError> {
-        match self.consumer.pop() {
-            Some(payload) => Ok(payload),
-            None if self.exit.load(AtomicOrdering::Relaxed) => {
-                Err(TxPayloadRecvError::Disconnected)
-            }
-            None => Err(TxPayloadRecvError::Empty),
-        }
     }
 }
 
@@ -802,38 +776,6 @@ pub fn tx_loop_v1(
         |payload| {
             let _ = drop_sender.try_send(payload);
         },
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn tx_loop_v1_que(
-    cpu_id: usize,
-    dev: &NetworkDevice,
-    queue_id: QueueId,
-    zero_copy: bool,
-    src_mac: Option<MacAddress>,
-    src_ip: Option<Ipv4Addr>,
-    src_port: u16,
-    dest_mac: Option<MacAddress>,
-    unioned_dest_sockets: Arc<ArcSwap<Vec<SocketAddr>>>,
-    receiver: XdpQueConsumer,
-    exit: Arc<AtomicBool>,
-) {
-    tx_loop_v1_inner(
-        cpu_id,
-        dev,
-        queue_id,
-        zero_copy,
-        src_mac,
-        src_ip,
-        src_port,
-        dest_mac,
-        unioned_dest_sockets,
-        QueTxPayloadReceiver {
-            consumer: receiver,
-            exit,
-        },
-        |_| {},
     );
 }
 

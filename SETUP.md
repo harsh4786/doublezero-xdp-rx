@@ -16,7 +16,7 @@ The userspace binary loads a built eBPF object from one of these locations:
 ## Repo Layout
 
 - This repo: userspace RX binaries
-  - `doublezero_rx`
+  - `doublezero_xdp_rx`
   - `doublezero_kernel_rx`
   - `run_doublezero_rx.sh`
   - `run_doublezero_rx_bench.sh`
@@ -31,7 +31,7 @@ Build the userspace binaries in this repo:
 
 ```bash
 cd /root/doublezero-xdp-rx
-cargo build --bin doublezero_rx --bin doublezero_kernel_rx
+cargo build --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ```
 
 Build the eBPF program in the sibling repo separately:
@@ -146,7 +146,7 @@ DOUBLEZERO_XDP_BPF_OBJECT=/path/to/doublezero-xdp-ebpf ./run_doublezero_rx.sh
 
 What happens:
 
-1. Start `doublezero_rx`
+1. Start `doublezero_xdp_rx`
 2. Load and attach the XDP program on `enp1s0f0`
 3. Pin `xsks_map`
 4. Bind AF_XDP socket on queue `3`
@@ -163,7 +163,7 @@ BENCH_DURATION_SECS=30 ./run_doublezero_rx_bench.sh
 This runs:
 
 1. `doublezero_kernel_rx` on `doublezero1`
-2. `doublezero_rx` on `enp1s0f0` queue `3`
+2. `doublezero_xdp_rx` on `enp1s0f0` queue `3`
 3. prints a latency table from both logs
 
 ## Operational Checks

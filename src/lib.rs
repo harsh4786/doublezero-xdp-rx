@@ -9,8 +9,6 @@
 #![warn(unsafe_op_in_unsafe_fn)]
 
 #[cfg(target_os = "linux")]
-pub mod combined_loop;
-#[cfg(target_os = "linux")]
 pub mod device;
 #[cfg(target_os = "linux")]
 pub mod netlink;
@@ -18,8 +16,6 @@ pub mod netlink;
 pub mod packet;
 #[cfg(target_os = "linux")]
 pub mod program;
-#[cfg(target_os = "linux")]
-pub mod que_channel;
 #[cfg(target_os = "linux")]
 pub mod route;
 #[cfg(target_os = "linux")]
@@ -32,12 +28,6 @@ pub mod stats;
 pub mod tx_loop;
 #[cfg(target_os = "linux")]
 pub mod umem;
-
-// #[cfg(target_os = "linux")]
-// pub mod udp_blaster;
-
-// `xdp_blaster` is built as a standalone binary (see Cargo.toml [[bin]]),
-// not as a library module.
 
 use std::io;
 

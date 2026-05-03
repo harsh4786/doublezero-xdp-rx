@@ -8,7 +8,7 @@ QUEUE="${QUEUE:-3}"
 CPU="${CPU:-3}"
 ATTACH_MODE="${ATTACH_MODE:-drv}"
 BPF_OBJECT="${BPF_OBJECT:-${DOUBLEZERO_XDP_BPF_OBJECT:-$ROOT_DIR/../doublezero-xdp/target/bpfel-unknown-none/release/doublezero-xdp-ebpf}}"
-BIN="${BIN:-$ROOT_DIR/target/debug/doublezero_rx}"
+BIN="${BIN:-$ROOT_DIR/target/debug/doublezero_xdp_rx}"
 LOG="${LOG:-/tmp/doublezero-rx.log}"
 PID_FILE="${PID_FILE:-/tmp/doublezero-rx.pid}"
 
@@ -60,7 +60,7 @@ echo "${PID}" > "${PID_FILE}"
 deadline=$((SECONDS + WAIT_TIMEOUT_SECS))
 while (( SECONDS < deadline )); do
     if ! kill -0 "${PID}" 2>/dev/null; then
-        echo "doublezero_rx exited before XDP RX armed; see ${LOG}" >&2
+        echo "doublezero_xdp_rx exited before XDP RX armed; see ${LOG}" >&2
         cat "${LOG}" >&2 || true
         exit 1
     fi
@@ -84,7 +84,7 @@ ethtool -U "${DEV}" flow-type ip4 \
     action "${FDIR_ACTION_QUEUE}" \
     loc "${FDIR_LOC}"
 
-echo "doublezero_rx running with pid ${PID}"
+echo "doublezero_xdp_rx running with pid ${PID}"
 echo "log: ${LOG}"
 echo "fdir: ${DEV} src=${FDIR_SRC_IP} dst=${FDIR_DST_IP} -> queue ${FDIR_ACTION_QUEUE} loc ${FDIR_LOC}"
 

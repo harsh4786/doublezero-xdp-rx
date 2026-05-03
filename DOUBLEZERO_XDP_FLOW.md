@@ -165,9 +165,9 @@ The current XDP program passes these packets to the kernel instead of redirectin
 
 That means control-plane and non-shred traffic stays on the normal Linux path.
 
-## How the `doublezero_rx` binary works
+## How the `doublezero_xdp_rx` binary works
 
-The standalone binary is [doublezero_rx.rs](/root/doublezero-xdp-rx/src/bin/doublezero_rx.rs).
+The standalone binary is [doublezero_xdp_rx.rs](/root/doublezero-xdp-rx/src/bin/doublezero_xdp_rx.rs).
 
 High-level flow:
 
@@ -177,11 +177,11 @@ High-level flow:
 2. Load program `doublezero_xdp_redirect`.
 3. Pin `xsks_map` at `/sys/fs/bpf/xsks_map`.
 4. Attach the XDP program to `enp1s0f0` in `drv` mode by default.
-5. Start the existing AF_XDP RX loop from `agave-xdp-rx`.
+5. Start the DoubleZero-integrated AF_XDP RX loop from `agave-xdp-rx`.
 6. Bind an AF_XDP socket to queue 3.
 7. Register that socket in `xsks_map[3]`.
 8. Receive redirected frames from XDP.
-9. Log per-packet metadata and per-second counters.
+9. Log per-packet metadata and per-second counters directly from the RX loop sink.
 
 Important detail:
 
@@ -200,7 +200,7 @@ It parses the GRE structure in userspace only for logging.
 The current working recipe is:
 
 1. Build the DoubleZero eBPF object.
-2. Build the standalone `doublezero_rx` binary.
+2. Build the standalone `doublezero_xdp_rx` binary.
 3. Attach the XDP program to `enp1s0f0`.
 4. Bind AF_XDP to queue 3 and register `xsks_map[3]`.
 5. Apply the outer IPv4 FDIR rule so the tunnel packets land on queue 3.

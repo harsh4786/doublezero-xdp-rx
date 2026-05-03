@@ -8,7 +8,7 @@ This repository is proprietary. See [LICENSE](/root/doublezero-xdp-rx/LICENSE).
 
 ## Contents
 
-- `doublezero_rx`: attach the DoubleZero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
+- `doublezero_xdp_rx`: attach the DoubleZero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
 - `doublezero_kernel_rx`: receive the same multicast feed through the normal UDP socket path for comparison.
 - `run_doublezero_rx.sh`: launch the XDP receiver and install the FDIR rule after AF_XDP is armed.
 - `run_doublezero_rx_bench.sh`: run the UDP and AF_XDP receivers back-to-back and print a latency table.
@@ -23,7 +23,7 @@ This repository is proprietary. See [LICENSE](/root/doublezero-xdp-rx/LICENSE).
 ## Build
 
 ```bash
-cargo build --bin doublezero_rx --bin doublezero_kernel_rx
+cargo build --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ```
 
 ## Run

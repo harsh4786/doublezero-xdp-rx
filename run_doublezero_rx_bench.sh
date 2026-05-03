@@ -151,7 +151,7 @@ print_table() {
 echo "[*] Building DoubleZero RX binaries..."
 cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
     --bin doublezero_kernel_rx \
-    --bin doublezero_rx >/dev/null
+    --bin doublezero_xdp_rx >/dev/null
 
 echo "[*] Running kernel-stack DoubleZero RX for ${BENCH_DURATION_SECS}s..."
 truncate -s 0 "$KERNEL_LOG"

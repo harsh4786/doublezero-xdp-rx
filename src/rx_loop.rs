@@ -11,9 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use aya::{
-    Ebpf,
-};
+use aya::Ebpf;
 use bytes::{Buf, Bytes};
 use caps::{
     CapSet,
@@ -28,7 +26,6 @@ use crate::{
     device::{NetworkDevice, QueueId, RingSizes, RxFillRing, XdpDesc},
     netlink::MacAddress,
     packet::{ETH_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE},
-    que_channel::{QueTracedPayload, XdpQueProducer},
     set_cpu_affinity,
     socket::{Rx, RxRing, Socket},
     tx_loop::TracedPayload,
@@ -39,6 +36,11 @@ const XDP_TRACE_KEY_PREFIX_BYTES: usize = 64;
 const XDP_TRACE_HASH_OFFSET_BASIS: u32 = 0x811c_9dc5;
 const XDP_TRACE_HASH_PRIME: u32 = 0x0100_0193;
 const DOUBLEZERO_GRE_PAYLOAD_OFFSET: usize = ETH_HEADER_SIZE + 20 + 4 + 20 + UDP_HEADER_SIZE;
+const DOUBLEZERO_GRE_HDR_LEN: usize = 4;
+const ETH_P_IPV4: u16 = 0x0800;
+const IPPROTO_GRE: u8 = 47;
+const IPPROTO_UDP: u8 = 17;
+const GRE_PROTO_IPV4: u16 = 0x0800;
 static XDP_PACKET_TRACE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static XDP_VERBOSE_TRACE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static XDP_PACKET_TRACE_MAX: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
@@ -113,11 +115,7 @@ fn rx_loop_v1_read_descriptors<const N: usize>(
     }
 }
 
-fn rx_loop_v1_account_rx_batch(
-    available: usize,
-    total_rx: &mut u64,
-    rx_packet_count: &AtomicU64,
-) {
+fn rx_loop_v1_account_rx_batch(available: usize, total_rx: &mut u64, rx_packet_count: &AtomicU64) {
     if available > 0 {
         *total_rx = total_rx.saturating_add(available as u64);
         rx_packet_count.fetch_add(available as u64, AtomicOrdering::Relaxed);
@@ -141,30 +139,10 @@ unsafe fn rx_loop_v1_process_bulk<S: RxPayloadSink>(
             let p2 = umem_base.add(chunk[2].addr as usize);
             let p3 = umem_base.add(chunk[3].addr as usize);
 
-            payload_sink.handle_packet(
-                p0,
-                chunk[0].len as usize,
-                read_start_ns,
-                pending_rx_traces,
-            );
-            payload_sink.handle_packet(
-                p1,
-                chunk[1].len as usize,
-                read_start_ns,
-                pending_rx_traces,
-            );
-            payload_sink.handle_packet(
-                p2,
-                chunk[2].len as usize,
-                read_start_ns,
-                pending_rx_traces,
-            );
-            payload_sink.handle_packet(
-                p3,
-                chunk[3].len as usize,
-                read_start_ns,
-                pending_rx_traces,
-            );
+            payload_sink.handle_packet(p0, chunk[0].len as usize, read_start_ns, pending_rx_traces);
+            payload_sink.handle_packet(p1, chunk[1].len as usize, read_start_ns, pending_rx_traces);
+            payload_sink.handle_packet(p2, chunk[2].len as usize, read_start_ns, pending_rx_traces);
+            payload_sink.handle_packet(p3, chunk[3].len as usize, read_start_ns, pending_rx_traces);
 
             umem.release(FrameOffset(chunk[0].addr as usize));
             umem.release(FrameOffset(chunk[1].addr as usize));
@@ -809,12 +787,12 @@ pub fn rx_loop_v1(
     );
 }
 
-pub fn rx_loop_v1_que(
+pub fn rx_loop_v1_doublezero(
     cpu_id: usize,
     dev: &NetworkDevice,
     queue_id: QueueId,
     zero_copy: bool,
-    producer: XdpQueProducer,
+    packet_log_limit: u64,
     bpf_opt: Option<&mut Ebpf>,
     ready: Option<Sender<()>>,
     rx_packet_count: Arc<AtomicU64>,
@@ -825,10 +803,7 @@ pub fn rx_loop_v1_que(
         dev,
         queue_id,
         zero_copy,
-        QueRxPayloadSink {
-            producer,
-            scratch: QueTracedPayload::zeroed(),
-        },
+        DoublezeroRxPayloadSink::new(queue_id, packet_log_limit),
         bpf_opt,
         ready,
         rx_packet_count,
@@ -1013,11 +988,7 @@ fn rx_loop_v1_inner<S: RxPayloadSink>(
         if exit.load(AtomicOrdering::Relaxed) {
             break;
         }
-        let read_batch = rx_loop_v1_read_descriptors(
-            &mut rx_ring,
-            &mut descs,
-            need_rx_timestamp,
-        );
+        let read_batch = rx_loop_v1_read_descriptors(&mut rx_ring, &mut descs, need_rx_timestamp);
         let available = read_batch.available;
         if hot_path_observability {
             read_batch_before = read_batch_slot;
@@ -1764,7 +1735,11 @@ unsafe fn handle_packet_v1(
         data: bytes::Bytes::copy_from_slice(byte_slice),
         trace_sig32,
     };
-    let bench_start_ns = if rx_path_bench_enabled() { rx_start_ns } else { 0 };
+    let bench_start_ns = if rx_path_bench_enabled() {
+        rx_start_ns
+    } else {
+        0
+    };
     sender.try_send(payload).unwrap();
     if bench_start_ns > 0 {
         rx_path_bench_record(
@@ -1812,12 +1787,31 @@ impl RxPayloadSink for CrossbeamRxPayloadSink {
     }
 }
 
-struct QueRxPayloadSink {
-    producer: XdpQueProducer,
-    scratch: QueTracedPayload<{ crate::que_channel::XDP_QUE_PAYLOAD_MAX }>,
+struct DoublezeroRxPayloadSink {
+    queue_id: QueueId,
+    packet_log_limit: u64,
+    total_packets: u64,
+    total_bytes: u64,
+    last_packets: u64,
+    last_bytes: u64,
+    last: Instant,
 }
 
-impl RxPayloadSink for QueRxPayloadSink {
+impl DoublezeroRxPayloadSink {
+    fn new(queue_id: QueueId, packet_log_limit: u64) -> Self {
+        Self {
+            queue_id,
+            packet_log_limit,
+            total_packets: 0,
+            total_bytes: 0,
+            last_packets: 0,
+            last_bytes: 0,
+            last: Instant::now(),
+        }
+    }
+}
+
+impl RxPayloadSink for DoublezeroRxPayloadSink {
     #[inline(always)]
     unsafe fn handle_packet(
         &mut self,
@@ -1826,57 +1820,126 @@ impl RxPayloadSink for QueRxPayloadSink {
         rx_start_ns: u128,
         pending_rx_traces: &mut Vec<PendingRxTrace>,
     ) {
-        unsafe {
-            handle_packet_v1_que(
-                raw_packet,
-                len,
-                rx_start_ns,
-                &mut self.producer,
-                &mut self.scratch,
-                pending_rx_traces,
+        let byte_slice = unsafe { std::slice::from_raw_parts(raw_packet, len) };
+        if should_log_packet_trace() {
+            let sig32 = payload_sig32(byte_slice);
+            pending_rx_traces.push(PendingRxTrace {
+                sig32,
+                frame_len: len,
+                rx_ns: rx_start_ns,
+            });
+        }
+
+        self.total_packets = self.total_packets.saturating_add(1);
+        self.total_bytes = self.total_bytes.saturating_add(len as u64);
+        if self.packet_log_limit > 0 && self.total_packets <= self.packet_log_limit {
+            log_doublezero_packet(self.total_packets, byte_slice);
+        }
+
+        let bench_start_ns = if rx_path_bench_enabled() {
+            rx_start_ns
+        } else {
+            0
+        };
+        if bench_start_ns > 0 {
+            rx_path_bench_record(
+                now_monotonic_ns().saturating_sub(bench_start_ns) as u64,
+                false,
             );
         }
     }
 
     #[inline(always)]
     fn sync(&mut self) {
-        self.producer.sync();
+        if self.last.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+
+        let packet_delta = self.total_packets.saturating_sub(self.last_packets);
+        let byte_delta = self.total_bytes.saturating_sub(self.last_bytes);
+        println!(
+            "rx queue={} total_packets={} total_bytes={} pps={} bytes_per_sec={}",
+            self.queue_id.0, self.total_packets, self.total_bytes, packet_delta, byte_delta
+        );
+        self.last_packets = self.total_packets;
+        self.last_bytes = self.total_bytes;
+        self.last = Instant::now();
     }
 }
 
-#[inline(always)]
-unsafe fn handle_packet_v1_que<const MAX: usize>(
-    raw_packet: *const u8,
-    len: usize,
-    rx_start_ns: u128,
-    producer: &mut que::lossless::producer::Producer<
-        QueTracedPayload<MAX>,
-        { crate::que_channel::XDP_QUE_CAPACITY },
-    >,
-    scratch: &mut QueTracedPayload<MAX>,
-    pending_rx_traces: &mut Vec<PendingRxTrace>,
-) {
-    let byte_slice = unsafe { std::slice::from_raw_parts(raw_packet, len) };
-    let trace_sig32 = if should_log_packet_trace() {
-        let sig32 = payload_sig32(byte_slice);
-        pending_rx_traces.push(PendingRxTrace {
-            sig32,
-            frame_len: len,
-            rx_ns: rx_start_ns,
-        });
-        Some(sig32)
-    } else {
-        None
-    };
-    unsafe {
-        scratch.set_from_raw(raw_packet, len, trace_sig32);
-    }
-    let bench_start_ns = if rx_path_bench_enabled() { rx_start_ns } else { 0 };
-    producer.push(scratch).unwrap();
-    if bench_start_ns > 0 {
-        rx_path_bench_record(
-            now_monotonic_ns().saturating_sub(bench_start_ns) as u64,
-            false,
+fn log_doublezero_packet(count: u64, frame: &[u8]) {
+    let size = frame.len();
+    if let Some(meta) = parse_doublezero_packet(frame) {
+        println!(
+            "rx count={} size={} inner_src={} inner_dst={} dst_port={}",
+            count, size, meta.inner_src, meta.inner_dst, meta.inner_dst_port
         );
+    } else {
+        println!("rx count={} size={} src=unknown", count, size);
     }
+}
+
+struct DoublezeroPacketMeta {
+    inner_src: Ipv4Addr,
+    inner_dst: Ipv4Addr,
+    inner_dst_port: u16,
+}
+
+fn parse_doublezero_packet(frame: &[u8]) -> Option<DoublezeroPacketMeta> {
+    if frame.len()
+        < ETH_HEADER_SIZE
+            + IP_HEADER_SIZE
+            + DOUBLEZERO_GRE_HDR_LEN
+            + IP_HEADER_SIZE
+            + UDP_HEADER_SIZE
+    {
+        return None;
+    }
+
+    let ether_type = u16::from_be_bytes([frame[12], frame[13]]);
+    if ether_type != ETH_P_IPV4 {
+        return None;
+    }
+
+    let outer_ihl = (frame[ETH_HEADER_SIZE] & 0x0f) as usize * 4;
+    if outer_ihl < IP_HEADER_SIZE
+        || frame.len() < ETH_HEADER_SIZE + outer_ihl + DOUBLEZERO_GRE_HDR_LEN
+    {
+        return None;
+    }
+    if frame[ETH_HEADER_SIZE + 9] != IPPROTO_GRE {
+        return None;
+    }
+
+    let gre_start = ETH_HEADER_SIZE + outer_ihl;
+    let gre_flags = u16::from_be_bytes([frame[gre_start], frame[gre_start + 1]]);
+    let gre_proto = u16::from_be_bytes([frame[gre_start + 2], frame[gre_start + 3]]);
+    if gre_flags != 0 || gre_proto != GRE_PROTO_IPV4 {
+        return None;
+    }
+
+    let inner_ip_start = gre_start + DOUBLEZERO_GRE_HDR_LEN;
+    let inner_ihl = (frame[inner_ip_start] & 0x0f) as usize * 4;
+    if inner_ihl < IP_HEADER_SIZE || frame.len() < inner_ip_start + inner_ihl + UDP_HEADER_SIZE {
+        return None;
+    }
+    if frame[inner_ip_start + 9] != IPPROTO_UDP {
+        return None;
+    }
+
+    let inner_src = ipv4_addr_at(frame, inner_ip_start + 12)?;
+    let inner_dst = ipv4_addr_at(frame, inner_ip_start + 16)?;
+    let udp_start = inner_ip_start + inner_ihl;
+    let inner_dst_port = u16::from_be_bytes([frame[udp_start + 2], frame[udp_start + 3]]);
+
+    Some(DoublezeroPacketMeta {
+        inner_src,
+        inner_dst,
+        inner_dst_port,
+    })
+}
+
+fn ipv4_addr_at(frame: &[u8], start: usize) -> Option<Ipv4Addr> {
+    let bytes = frame.get(start..start + 4)?;
+    Some(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]))
 }
