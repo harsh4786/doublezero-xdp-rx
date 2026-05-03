@@ -2,6 +2,10 @@
 
 Standalone userspace AF_XDP receiver and latency benchmark tooling for DoubleZero GRE-encapsulated shred traffic.
 
+## License
+
+This repository is proprietary. See [LICENSE](/root/doublezero-xdp-rx/LICENSE).
+
 ## Contents
 
 - `doublezero_rx`: attach the DoubleZero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
