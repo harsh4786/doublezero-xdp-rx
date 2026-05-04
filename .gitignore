@@ -5,3 +5,6 @@
 *.folded
 *.txt
 .DS_Store
+/.agents/
+/.codex/
+/skills/
