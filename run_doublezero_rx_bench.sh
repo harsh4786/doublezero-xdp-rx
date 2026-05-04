@@ -161,11 +161,6 @@ cpu_core_id() {
     cat "/sys/devices/system/cpu/cpu${cpu}/topology/core_id" 2>/dev/null || echo "n/a"
 }
 
-cpu_siblings() {
-    local cpu="$1"
-    cat "/sys/devices/system/cpu/cpu${cpu}/topology/thread_siblings_list" 2>/dev/null || echo "n/a"
-}
-
 print_table() {
     local kernel_line xdp_rx_line xdp_bench_line
     kernel_line="$(grep -E 'kernel_rx_final' "$KERNEL_LOG" 2>/dev/null | tail -1 || true)"
@@ -189,25 +184,23 @@ print_table() {
     xdp_p99="$(field_value "$xdp_bench_line" p99_ns)"
     xdp_avg="$(field_value "$xdp_bench_line" avg_ns)"
 
-    local kernel_core xdp_core kernel_siblings xdp_siblings
+    local kernel_core xdp_core
     kernel_core="$(cpu_core_id "$KERNEL_CPU")"
     xdp_core="$(cpu_core_id "$CPU")"
-    kernel_siblings="$(cpu_siblings "$KERNEL_CPU")"
-    xdp_siblings="$(cpu_siblings "$CPU")"
 
     echo
     echo "DoubleZero RX Latency Benchmark"
-    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
-    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
-        "mode" "linux_cpu" "core_id" "queue" "packets" "p50_us" "p90_us" "p95_us" "p99_us" "avg_us" "smt"
-    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
-    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
+    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+\n'
+    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s |\n' \
+        "mode" "linux_cpu" "core_id" "queue" "packets" "p50_us" "p90_us" "p95_us" "p99_us" "avg_us"
+    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+\n'
+    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s |\n' \
         "udp_kernel" "$KERNEL_CPU" "$kernel_core" "kernel" "${kernel_packets:-n/a}" \
-        "$(ns_to_us "${kernel_p50:-}")" "$(ns_to_us "${kernel_p90:-}")" "$(ns_to_us "${kernel_p95:-}")" "$(ns_to_us "${kernel_p99:-}")" "$(ns_to_us "${kernel_avg:-}")" "$kernel_siblings"
-    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
+        "$(ns_to_us "${kernel_p50:-}")" "$(ns_to_us "${kernel_p90:-}")" "$(ns_to_us "${kernel_p95:-}")" "$(ns_to_us "${kernel_p99:-}")" "$(ns_to_us "${kernel_avg:-}")"
+    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s |\n' \
         "xdp_af_xdp" "$CPU" "$xdp_core" "$QUEUE" "${xdp_packets:-n/a}" \
-        "$(ns_to_us "${xdp_p50:-}")" "$(ns_to_us "${xdp_p90:-}")" "$(ns_to_us "${xdp_p95:-}")" "$(ns_to_us "${xdp_p99:-}")" "$(ns_to_us "${xdp_avg:-}")" "$xdp_siblings"
-    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
+        "$(ns_to_us "${xdp_p50:-}")" "$(ns_to_us "${xdp_p90:-}")" "$(ns_to_us "${xdp_p95:-}")" "$(ns_to_us "${xdp_p99:-}")" "$(ns_to_us "${xdp_avg:-}")"
+    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+\n'
 }
 
 echo "[*] Building DoubleZero RX binaries..."
