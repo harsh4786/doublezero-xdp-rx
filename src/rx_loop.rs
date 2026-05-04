@@ -27,7 +27,7 @@ use crate::{
     netlink::MacAddress,
     packet::{ETH_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE},
     set_cpu_affinity,
-    socket::{Rx, RxRing, Socket},
+    socket::{Rx, Socket},
     tx_loop::TracedPayload,
     umem::{Frame, FrameOffset, PageAlignedMemory, SliceUmem, SliceUmemFrame, Umem},
 };
@@ -57,12 +57,6 @@ struct PendingRxTrace {
     rx_ns: u128,
 }
 
-struct RxReadBatch {
-    available: usize,
-    avail_before_read_batch: usize,
-    read_start_ns: u128,
-}
-
 /// Flush buffered RX trace records: sampling bookkeeping and logging happen
 /// here, outside the per-packet hot path.
 fn flush_pending_rx_traces(pending: &mut Vec<PendingRxTrace>, queue_id: QueueId) {
@@ -80,125 +74,6 @@ fn flush_pending_rx_traces(pending: &mut Vec<PendingRxTrace>, queue_id: QueueId)
             queue_id, trace.frame_len, trace.sig32, trace.rx_ns
         );
     }
-}
-
-fn rx_loop_v1_read_descriptors<const N: usize>(
-    rx_ring: &mut RxRing,
-    descs: &mut [XdpDesc; N],
-    need_rx_timestamp: bool,
-) -> RxReadBatch {
-    rx_ring.sync(false);
-    let avail_before_read_batch = rx_ring.available();
-    // Timestamp before read_batch when packets are visible, so it
-    // reflects ring-ready time, not post-descriptor-copy time.
-    // Skip the syscall when ring is empty to avoid the clock_gettime
-    // hotspot on empty polls.
-    let ts_before = if need_rx_timestamp && avail_before_read_batch > 0 {
-        now_monotonic_ns()
-    } else {
-        0
-    };
-    let available = rx_ring.read_batch(descs).unwrap_or(0);
-    // Use pre-read timestamp when we saw availability; fall back to
-    // now only for the race where available() was 0 but read_batch
-    // returned packets.
-    let read_start_ns = if need_rx_timestamp && available > 0 && ts_before == 0 {
-        now_monotonic_ns()
-    } else {
-        ts_before
-    };
-
-    RxReadBatch {
-        available,
-        avail_before_read_batch,
-        read_start_ns,
-    }
-}
-
-fn rx_loop_v1_account_rx_batch(available: usize, total_rx: &mut u64, rx_packet_count: &AtomicU64) {
-    if available > 0 {
-        *total_rx = total_rx.saturating_add(available as u64);
-        rx_packet_count.fetch_add(available as u64, AtomicOrdering::Relaxed);
-    }
-}
-
-unsafe fn rx_loop_v1_process_bulk<S: RxPayloadSink>(
-    descs: &[XdpDesc],
-    frames: &mut [FrameOffset],
-    umem_base: *const u8,
-    umem: &mut SliceUmem<'_>,
-    payload_sink: &mut S,
-    read_start_ns: u128,
-    pending_rx_traces: &mut Vec<PendingRxTrace>,
-) -> usize {
-    let mut recycled = 0usize;
-    for (chunk, frame) in descs.chunks_exact(4).zip(frames.chunks_mut(4)) {
-        unsafe {
-            let p0 = umem_base.add(chunk[0].addr as usize);
-            let p1 = umem_base.add(chunk[1].addr as usize);
-            let p2 = umem_base.add(chunk[2].addr as usize);
-            let p3 = umem_base.add(chunk[3].addr as usize);
-
-            payload_sink.handle_packet(p0, chunk[0].len as usize, read_start_ns, pending_rx_traces);
-            payload_sink.handle_packet(p1, chunk[1].len as usize, read_start_ns, pending_rx_traces);
-            payload_sink.handle_packet(p2, chunk[2].len as usize, read_start_ns, pending_rx_traces);
-            payload_sink.handle_packet(p3, chunk[3].len as usize, read_start_ns, pending_rx_traces);
-
-            umem.release(FrameOffset(chunk[0].addr as usize));
-            umem.release(FrameOffset(chunk[1].addr as usize));
-            umem.release(FrameOffset(chunk[2].addr as usize));
-            umem.release(FrameOffset(chunk[3].addr as usize));
-
-            frame[0] = FrameOffset(chunk[0].addr as usize);
-            frame[1] = FrameOffset(chunk[1].addr as usize);
-            frame[2] = FrameOffset(chunk[2].addr as usize);
-            frame[3] = FrameOffset(chunk[3].addr as usize);
-        }
-        recycled += 4;
-    }
-    recycled
-}
-
-unsafe fn rx_loop_v1_process_tail<S: RxPayloadSink>(
-    descs: &[XdpDesc],
-    frames: &mut [FrameOffset],
-    recycled: &mut usize,
-    umem_base: *const u8,
-    umem: &mut SliceUmem<'_>,
-    payload_sink: &mut S,
-    read_start_ns: u128,
-    pending_rx_traces: &mut Vec<PendingRxTrace>,
-) {
-    for d in descs {
-        unsafe {
-            let p = umem_base.add(d.addr as usize);
-            payload_sink.handle_packet(p, d.len as usize, read_start_ns, pending_rx_traces);
-        }
-        let off = FrameOffset(d.addr as usize);
-        umem.release(off);
-        frames[*recycled] = off;
-        *recycled += 1;
-    }
-}
-
-fn rx_loop_v1_sync_payload_sink<S: RxPayloadSink>(payload_sink: &mut S, available: usize) {
-    if available > 0 {
-        payload_sink.sync();
-    }
-}
-
-fn rx_loop_v1_flush_rx_traces(pending_rx_traces: &mut Vec<PendingRxTrace>, queue_id: QueueId) {
-    if !pending_rx_traces.is_empty() {
-        flush_pending_rx_traces(pending_rx_traces, queue_id);
-    }
-}
-
-fn rx_loop_v1_refill_ring<'a>(
-    fill_ring: &mut RxFillRing<SliceUmemFrame<'a>>,
-    umem: &mut SliceUmem<'a>,
-    frames: &[FrameOffset],
-) -> usize {
-    fill_ring.write_batch(umem, frames).unwrap_or(0)
 }
 
 #[derive(Default)]
@@ -988,8 +863,21 @@ fn rx_loop_v1_inner<S: RxPayloadSink>(
         if exit.load(AtomicOrdering::Relaxed) {
             break;
         }
-        let read_batch = rx_loop_v1_read_descriptors(&mut rx_ring, &mut descs, need_rx_timestamp);
-        let available = read_batch.available;
+
+        rx_ring.sync(false);
+        let avail_before_read_batch = rx_ring.available();
+        let ts_before = if need_rx_timestamp && avail_before_read_batch > 0 {
+            now_monotonic_ns()
+        } else {
+            0
+        };
+        let available = rx_ring.read_batch(&mut descs).unwrap_or(0);
+        let read_start_ns = if need_rx_timestamp && available > 0 && ts_before == 0 {
+            now_monotonic_ns()
+        } else {
+            ts_before
+        };
+
         if hot_path_observability {
             read_batch_before = read_batch_slot;
             read_batch_n = available;
@@ -997,14 +885,17 @@ fn rx_loop_v1_inner<S: RxPayloadSink>(
             read_batch_slot = read_batch_after;
             read_batch_calls = read_batch_calls.saturating_add(1);
             read_batch_descs = read_batch_descs.saturating_add(available as u64);
-            rx_pending_sampled = read_batch.avail_before_read_batch;
+            rx_pending_sampled = avail_before_read_batch;
             rx_batch_polls = rx_batch_polls.saturating_add(1);
             rx_batch_sum = rx_batch_sum.saturating_add(available as u64);
             rx_batch_max = rx_batch_max.max(available);
             rx_peak_used = rx_peak_used.max(available);
         }
 
-        rx_loop_v1_account_rx_batch(available, &mut total_rx, &rx_packet_count);
+        if available > 0 {
+            total_rx = total_rx.saturating_add(available as u64);
+            rx_packet_count.fetch_add(available as u64, AtomicOrdering::Relaxed);
+        }
         if available > 0 && hot_path_observability {
             rx_last_non_zero_used = available;
         }
@@ -1021,38 +912,76 @@ fn rx_loop_v1_inner<S: RxPayloadSink>(
 
         let mut recycled = 0usize;
         let bulk = available & !3;
-        if bulk > 0 {
+        for (chunk, frame) in descs[..bulk]
+            .chunks_exact(4)
+            .zip(frames[..bulk].chunks_mut(4))
+        {
             unsafe {
-                recycled = rx_loop_v1_process_bulk(
-                    &descs[..bulk],
-                    &mut frames[..bulk],
-                    umem_base,
-                    umem,
-                    &mut payload_sink,
-                    read_batch.read_start_ns,
+                let p0 = umem_base.add(chunk[0].addr as usize);
+                let p1 = umem_base.add(chunk[1].addr as usize);
+                let p2 = umem_base.add(chunk[2].addr as usize);
+                let p3 = umem_base.add(chunk[3].addr as usize);
+
+                payload_sink.handle_packet(
+                    p0,
+                    chunk[0].len as usize,
+                    read_start_ns,
+                    &mut pending_rx_traces,
+                );
+                payload_sink.handle_packet(
+                    p1,
+                    chunk[1].len as usize,
+                    read_start_ns,
+                    &mut pending_rx_traces,
+                );
+                payload_sink.handle_packet(
+                    p2,
+                    chunk[2].len as usize,
+                    read_start_ns,
+                    &mut pending_rx_traces,
+                );
+                payload_sink.handle_packet(
+                    p3,
+                    chunk[3].len as usize,
+                    read_start_ns,
+                    &mut pending_rx_traces,
+                );
+
+                umem.release(FrameOffset(chunk[0].addr as usize));
+                umem.release(FrameOffset(chunk[1].addr as usize));
+                umem.release(FrameOffset(chunk[2].addr as usize));
+                umem.release(FrameOffset(chunk[3].addr as usize));
+
+                frame[0] = FrameOffset(chunk[0].addr as usize);
+                frame[1] = FrameOffset(chunk[1].addr as usize);
+                frame[2] = FrameOffset(chunk[2].addr as usize);
+                frame[3] = FrameOffset(chunk[3].addr as usize);
+            }
+            recycled += 4;
+        }
+
+        for d in &descs[bulk..available] {
+            unsafe {
+                let p = umem_base.add(d.addr as usize);
+                payload_sink.handle_packet(
+                    p,
+                    d.len as usize,
+                    read_start_ns,
                     &mut pending_rx_traces,
                 );
             }
+            let off = FrameOffset(d.addr as usize);
+            umem.release(off);
+            frames[recycled] = off;
+            recycled += 1;
         }
 
-        // Scalar tail: handle remaining 1-3 packets that chunks_exact(4) skips.
-        if bulk != available {
-            unsafe {
-                rx_loop_v1_process_tail(
-                    &descs[bulk..available],
-                    &mut frames,
-                    &mut recycled,
-                    umem_base,
-                    umem,
-                    &mut payload_sink,
-                    read_batch.read_start_ns,
-                    &mut pending_rx_traces,
-                );
-            }
+        if available > 0 {
+            payload_sink.sync();
         }
-
-        rx_loop_v1_sync_payload_sink(&mut payload_sink, available);
-        rx_loop_v1_flush_rx_traces(&mut pending_rx_traces, queue_id);
+        if !pending_rx_traces.is_empty() {
+            flush_pending_rx_traces(&mut pending_rx_traces, queue_id);
+        }
 
         if hot_path_observability {
             fill_ring.sync(false);
@@ -1071,7 +1000,13 @@ fn rx_loop_v1_inner<S: RxPayloadSink>(
             fill_write_batch_calls = fill_write_batch_calls.saturating_add(1);
             fill_write_batch_descs = fill_write_batch_descs.saturating_add(recycled as u64);
         }
-        let wrote = rx_loop_v1_refill_ring(&mut fill_ring, umem, &frames[..recycled]);
+        let wrote = if recycled > 0 {
+            fill_ring
+                .write_batch(umem, &frames[..recycled])
+                .unwrap_or(0)
+        } else {
+            0
+        };
         if hot_path_observability {
             fill_write_slot = fill_write_slot.wrapping_add(wrote) & fill_mask;
 

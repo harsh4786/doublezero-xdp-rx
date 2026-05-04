@@ -8,7 +8,7 @@ QUEUE="${QUEUE:-3}"
 CPU="${CPU:-3}"
 ATTACH_MODE="${ATTACH_MODE:-drv}"
 BPF_OBJECT="${BPF_OBJECT:-${DOUBLEZERO_XDP_BPF_OBJECT:-$ROOT_DIR/../doublezero-xdp/target/bpfel-unknown-none/release/doublezero-xdp-ebpf}}"
-BIN="${BIN:-$ROOT_DIR/target/debug/doublezero_xdp_rx}"
+BIN="${BIN:-$ROOT_DIR/target/release/doublezero_xdp_rx}"
 LOG="${LOG:-/tmp/doublezero-rx.log}"
 PID_FILE="${PID_FILE:-/tmp/doublezero-rx.pid}"
 

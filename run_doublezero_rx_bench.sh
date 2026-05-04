@@ -4,10 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BENCH_DURATION_SECS="${BENCH_DURATION_SECS:-30}"
+BENCH_MODE="${BENCH_MODE:-auto}"
 KERNEL_LOG="${KERNEL_LOG:-/tmp/doublezero-kernel-rx.log}"
 XDP_LOG="${XDP_LOG:-/tmp/doublezero-rx.log}"
 
-KERNEL_BIN="${KERNEL_BIN:-$ROOT_DIR/target/debug/doublezero_kernel_rx}"
+KERNEL_BIN="${KERNEL_BIN:-$ROOT_DIR/target/release/doublezero_kernel_rx}"
+XDP_BIN="${XDP_BIN:-$ROOT_DIR/target/release/doublezero_xdp_rx}"
 XDP_SCRIPT="${XDP_SCRIPT:-$ROOT_DIR/run_doublezero_rx.sh}"
 
 KERNEL_IFACE="${KERNEL_IFACE:-doublezero1}"
@@ -22,6 +24,42 @@ QUEUE="${QUEUE:-3}"
 CPU="${CPU:-4}"
 ATTACH_MODE="${ATTACH_MODE:-drv}"
 XDP_PACKET_LOG_LIMIT="${XDP_PACKET_LOG_LIMIT:-0}"
+
+case "$BENCH_MODE" in
+    auto|both|kernel|xdp) ;;
+    *)
+        echo "[!] invalid BENCH_MODE=${BENCH_MODE}; expected auto, both, kernel, or xdp" >&2
+        exit 2
+        ;;
+esac
+
+RUN_KERNEL=0
+RUN_XDP=0
+case "$BENCH_MODE" in
+    both)
+        RUN_KERNEL=1
+        RUN_XDP=1
+        ;;
+    kernel)
+        RUN_KERNEL=1
+        ;;
+    xdp)
+        RUN_XDP=1
+        ;;
+    auto)
+        if [[ -e "/sys/class/net/${KERNEL_IFACE}" ]]; then
+            RUN_KERNEL=1
+        else
+            echo "[*] Kernel interface ${KERNEL_IFACE} not found; auto mode will run XDP only."
+        fi
+        RUN_XDP=1
+        ;;
+esac
+
+if (( RUN_KERNEL == 1 )) && [[ ! -e "/sys/class/net/${KERNEL_IFACE}" ]]; then
+    echo "[!] Kernel interface ${KERNEL_IFACE} not found. Set KERNEL_IFACE=... or BENCH_MODE=xdp." >&2
+    exit 1
+fi
 
 stop_pid_file() {
     local pid_file="$1"
@@ -150,33 +188,43 @@ print_table() {
 
 echo "[*] Building DoubleZero RX binaries..."
 cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
+    --release \
     --bin doublezero_kernel_rx \
     --bin doublezero_xdp_rx >/dev/null
 
-echo "[*] Running kernel-stack DoubleZero RX for ${BENCH_DURATION_SECS}s..."
 truncate -s 0 "$KERNEL_LOG"
-"$KERNEL_BIN" \
-    --iface "$KERNEL_IFACE" \
-    --group "$KERNEL_GROUP" \
-    --port "$KERNEL_PORT" \
-    --cpu "$KERNEL_CPU" \
-    --duration-secs "$BENCH_DURATION_SECS" \
-    --packet-log-limit "$KERNEL_PACKET_LOG_LIMIT" \
-    --recv-buffer-mb "$KERNEL_RECV_BUFFER_MB" \
-    >"$KERNEL_LOG" 2>&1
+if (( RUN_KERNEL == 1 )); then
+    echo "[*] Running kernel-stack DoubleZero RX for ${BENCH_DURATION_SECS}s..."
+    "$KERNEL_BIN" \
+        --iface "$KERNEL_IFACE" \
+        --group "$KERNEL_GROUP" \
+        --port "$KERNEL_PORT" \
+        --cpu "$KERNEL_CPU" \
+        --duration-secs "$BENCH_DURATION_SECS" \
+        --packet-log-limit "$KERNEL_PACKET_LOG_LIMIT" \
+        --recv-buffer-mb "$KERNEL_RECV_BUFFER_MB" \
+        >"$KERNEL_LOG" 2>&1
+else
+    echo "kernel_rx_skipped reason=interface_not_found iface=${KERNEL_IFACE}" >"$KERNEL_LOG"
+fi
 
-echo "[*] Running XDP/AF_XDP DoubleZero RX for ${BENCH_DURATION_SECS}s..."
-stop_pid_file /tmp/doublezero-rx.pid
+truncate -s 0 "$XDP_LOG"
 truncate -s 0 /tmp/doublezero-rx-bench-xdp-launcher.log
-DEV="$DEV" QUEUE="$QUEUE" CPU="$CPU" ATTACH_MODE="$ATTACH_MODE" LOG="$XDP_LOG" \
-    RX_PATH_BENCH=1 PACKET_LOG_LIMIT="$XDP_PACKET_LOG_LIMIT" \
-    "$XDP_SCRIPT" >/tmp/doublezero-rx-bench-xdp-launcher.log 2>&1 &
-XDP_LAUNCHER_PID="$!"
-wait_for_log_pattern /tmp/doublezero-rx-bench-xdp-launcher.log "fdir:" 25 "XDP launcher" "$XDP_LAUNCHER_PID"
-sleep "$BENCH_DURATION_SECS"
-kill "$XDP_LAUNCHER_PID" 2>/dev/null || true
-wait "$XDP_LAUNCHER_PID" 2>/dev/null || true
-stop_pid_file /tmp/doublezero-rx.pid
+if (( RUN_XDP == 1 )); then
+    echo "[*] Running XDP/AF_XDP DoubleZero RX for ${BENCH_DURATION_SECS}s..."
+    stop_pid_file /tmp/doublezero-rx.pid
+    DEV="$DEV" QUEUE="$QUEUE" CPU="$CPU" ATTACH_MODE="$ATTACH_MODE" LOG="$XDP_LOG" BIN="$XDP_BIN" \
+        RX_PATH_BENCH=1 PACKET_LOG_LIMIT="$XDP_PACKET_LOG_LIMIT" \
+        "$XDP_SCRIPT" >/tmp/doublezero-rx-bench-xdp-launcher.log 2>&1 &
+    XDP_LAUNCHER_PID="$!"
+    wait_for_log_pattern /tmp/doublezero-rx-bench-xdp-launcher.log "fdir:" 25 "XDP launcher" "$XDP_LAUNCHER_PID"
+    sleep "$BENCH_DURATION_SECS"
+    kill "$XDP_LAUNCHER_PID" 2>/dev/null || true
+    wait "$XDP_LAUNCHER_PID" 2>/dev/null || true
+    stop_pid_file /tmp/doublezero-rx.pid
+else
+    echo "xdp_rx_skipped reason=bench_mode_${BENCH_MODE}" >"$XDP_LOG"
+fi
 
 echo
 echo "DoubleZero RX benchmark artifacts:"
