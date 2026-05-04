@@ -18,6 +18,7 @@ KERNEL_PORT="${KERNEL_PORT:-7733}"
 KERNEL_CPU="${KERNEL_CPU:-3}"
 KERNEL_PACKET_LOG_LIMIT="${KERNEL_PACKET_LOG_LIMIT:-0}"
 KERNEL_RECV_BUFFER_MB="${KERNEL_RECV_BUFFER_MB:-64}"
+KERNEL_WAIT_READY_SECS="${KERNEL_WAIT_READY_SECS:-60}"
 
 DEV="${DEV:-enp1s0f0}"
 QUEUE="${QUEUE:-3}"
@@ -92,6 +93,32 @@ wait_for_log_pattern() {
     return 1
 }
 
+wait_for_kernel_path_ready() {
+    local deadline=$((SECONDS + KERNEL_WAIT_READY_SECS))
+    while (( SECONDS < deadline )); do
+        if [[ ! -e "/sys/class/net/${KERNEL_IFACE}" ]]; then
+            sleep 1
+            continue
+        fi
+
+        if command -v doublezero >/dev/null 2>&1; then
+            if doublezero status 2>/dev/null | grep -q 'BGP Session Up'; then
+                return 0
+            fi
+        else
+            return 0
+        fi
+
+        sleep 1
+    done
+
+    echo "[!] kernel path not ready after ${KERNEL_WAIT_READY_SECS}s; iface=${KERNEL_IFACE}" >&2
+    if command -v doublezero >/dev/null 2>&1; then
+        doublezero status >&2 || true
+    fi
+    return 1
+}
+
 summarize_final() {
     local label="$1" log="$2"
     local line=""
@@ -145,8 +172,8 @@ print_table() {
     xdp_rx_line="$(grep -E 'rx queue=' "$XDP_LOG" 2>/dev/null | awk '$0 !~ /pps=0( |$)/ { line=$0 } END { print line }' || true)"
     xdp_bench_line="$(grep -E 'RX_PATH_BENCH:' "$XDP_LOG" 2>/dev/null | tail -1 || true)"
 
-    local kernel_packets kernel_p50 kernel_p90 kernel_p95 kernel_p99 kernel_avg kernel_max
-    local xdp_packets xdp_pps xdp_p50 xdp_p90 xdp_p95 xdp_p99 xdp_avg xdp_max
+    local kernel_packets kernel_p50 kernel_p90 kernel_p95 kernel_p99 kernel_avg
+    local xdp_packets xdp_p50 xdp_p90 xdp_p95 xdp_p99 xdp_avg
 
     kernel_packets="$(field_value "$kernel_line" packets)"
     kernel_p50="$(field_value "$kernel_line" kernel_to_user_p50_ns)"
@@ -154,16 +181,13 @@ print_table() {
     kernel_p95="$(field_value "$kernel_line" kernel_to_user_p95_ns)"
     kernel_p99="$(field_value "$kernel_line" kernel_to_user_p99_ns)"
     kernel_avg="$(field_value "$kernel_line" kernel_to_user_avg_ns)"
-    kernel_max="$(field_value "$kernel_line" kernel_to_user_max_ns)"
 
     xdp_packets="$(field_value "$xdp_rx_line" total_packets)"
-    xdp_pps="$(field_value "$xdp_rx_line" pps)"
     xdp_p50="$(field_value "$xdp_bench_line" p50_ns)"
     xdp_p90="$(field_value "$xdp_bench_line" p90_ns)"
     xdp_p95="$(field_value "$xdp_bench_line" p95_ns)"
     xdp_p99="$(field_value "$xdp_bench_line" p99_ns)"
     xdp_avg="$(field_value "$xdp_bench_line" avg_ns)"
-    xdp_max="$(field_value "$xdp_bench_line" max_ns)"
 
     local kernel_core xdp_core kernel_siblings xdp_siblings
     kernel_core="$(cpu_core_id "$KERNEL_CPU")"
@@ -173,17 +197,17 @@ print_table() {
 
     echo
     echo "DoubleZero RX Latency Benchmark"
-    printf '+------------+-----------+---------+--------+----------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
-    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
-        "mode" "linux_cpu" "core_id" "queue" "packets" "pps" "p50_us" "p90_us" "p95_us" "p99_us" "avg_us" "max_us" "smt"
-    printf '+------------+-----------+---------+--------+----------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
-    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
-        "udp_kernel" "$KERNEL_CPU" "$kernel_core" "kernel" "${kernel_packets:-n/a}" "n/a" \
-        "$(ns_to_us "${kernel_p50:-}")" "$(ns_to_us "${kernel_p90:-}")" "$(ns_to_us "${kernel_p95:-}")" "$(ns_to_us "${kernel_p99:-}")" "$(ns_to_us "${kernel_avg:-}")" "$(ns_to_us "${kernel_max:-}")" "$kernel_siblings"
-    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
-        "xdp_af_xdp" "$CPU" "$xdp_core" "$QUEUE" "${xdp_packets:-n/a}" "${xdp_pps:-n/a}" \
-        "$(ns_to_us "${xdp_p50:-}")" "$(ns_to_us "${xdp_p90:-}")" "$(ns_to_us "${xdp_p95:-}")" "$(ns_to_us "${xdp_p99:-}")" "$(ns_to_us "${xdp_avg:-}")" "$(ns_to_us "${xdp_max:-}")" "$xdp_siblings"
-    printf '+------------+-----------+---------+--------+----------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
+    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
+    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
+        "mode" "linux_cpu" "core_id" "queue" "packets" "p50_us" "p90_us" "p95_us" "p99_us" "avg_us" "smt"
+    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
+    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
+        "udp_kernel" "$KERNEL_CPU" "$kernel_core" "kernel" "${kernel_packets:-n/a}" \
+        "$(ns_to_us "${kernel_p50:-}")" "$(ns_to_us "${kernel_p90:-}")" "$(ns_to_us "${kernel_p95:-}")" "$(ns_to_us "${kernel_p99:-}")" "$(ns_to_us "${kernel_avg:-}")" "$kernel_siblings"
+    printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s | %-11s |\n' \
+        "xdp_af_xdp" "$CPU" "$xdp_core" "$QUEUE" "${xdp_packets:-n/a}" \
+        "$(ns_to_us "${xdp_p50:-}")" "$(ns_to_us "${xdp_p90:-}")" "$(ns_to_us "${xdp_p95:-}")" "$(ns_to_us "${xdp_p99:-}")" "$(ns_to_us "${xdp_avg:-}")" "$xdp_siblings"
+    printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+-------------+\n'
 }
 
 echo "[*] Building DoubleZero RX binaries..."
@@ -194,6 +218,7 @@ cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
 
 truncate -s 0 "$KERNEL_LOG"
 if (( RUN_KERNEL == 1 )); then
+    wait_for_kernel_path_ready
     echo "[*] Running kernel-stack DoubleZero RX for ${BENCH_DURATION_SECS}s..."
     "$KERNEL_BIN" \
         --iface "$KERNEL_IFACE" \
