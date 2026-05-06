@@ -31,7 +31,7 @@ Build the userspace binaries in this repo:
 
 ```bash
 cd /root/doublezero-xdp-rx
-cargo build --bin doublezero_xdp_rx --bin doublezero_kernel_rx
+cargo build --release --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ```
 
 Build the eBPF program in the sibling repo separately:
@@ -137,6 +137,22 @@ cd /root/doublezero-xdp-rx
 ./run_doublezero_rx.sh
 ```
 
+For the demo startup view with DoubleZero route/status logs and `xdpdump`
+showing XDP return actions (`PASS`/`REDIRECT`):
+
+```bash
+cd /root/doublezero-xdp-rx
+SHOW_STARTUP_LOGS=1 SHOW_XDPDUMP_LOGS=1 ./run_doublezero_rx.sh
+```
+
+By default, the startup xdpdump stream runs until the launcher exits. To make it
+bounded:
+
+```bash
+cd /root/doublezero-xdp-rx
+SHOW_STARTUP_LOGS=1 SHOW_XDPDUMP_LOGS=1 XDPDUMP_DURATION_SECS=10 ./run_doublezero_rx.sh
+```
+
 If the eBPF object is not in the sibling default path:
 
 ```bash
@@ -146,12 +162,15 @@ DOUBLEZERO_XDP_BPF_OBJECT=/path/to/doublezero-xdp-ebpf ./run_doublezero_rx.sh
 
 What happens:
 
-1. Start `doublezero_xdp_rx`
-2. Load and attach the XDP program on `enp1s0f0`
-3. Pin `xsks_map`
-4. Bind AF_XDP socket on queue `3`
-5. Wait for `XDP RX armed`
-6. Install the FDIR rule to push the DoubleZero outer flow into queue `3`
+1. Clear the startup screen when startup logs are enabled
+2. Wait for DoubleZero multicast routes before starting XDP RX
+3. Start `doublezero_xdp_rx`
+4. Load and attach the XDP program on `enp1s0f0`
+5. Pin `xsks_map`
+6. Bind AF_XDP socket on queue `3`
+7. Wait for `XDP RX armed`
+8. Install the FDIR rule to push the DoubleZero outer flow into queue `3`
+9. Optionally start `xdpdump --rx-capture=exit` to print XDP actions
 
 ## Run Kernel vs XDP Benchmark
 

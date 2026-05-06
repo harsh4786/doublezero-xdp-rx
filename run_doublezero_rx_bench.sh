@@ -19,6 +19,11 @@ KERNEL_CPU="${KERNEL_CPU:-3}"
 KERNEL_PACKET_LOG_LIMIT="${KERNEL_PACKET_LOG_LIMIT:-0}"
 KERNEL_RECV_BUFFER_MB="${KERNEL_RECV_BUFFER_MB:-64}"
 KERNEL_WAIT_READY_SECS="${KERNEL_WAIT_READY_SECS:-60}"
+DZ_CLIENT_IP="${DZ_CLIENT_IP:-<your-dst-ip>}"
+DZ_DEVICE_CODE="${DZ_DEVICE_CODE:-cherlita}"
+SHOW_STARTUP_LOGS="${SHOW_STARTUP_LOGS:-0}"
+SHOW_STARTUP_POLL_SECS="${SHOW_STARTUP_POLL_SECS:-1}"
+SHOW_XDPDUMP_LOGS="${SHOW_XDPDUMP_LOGS:-$SHOW_STARTUP_LOGS}"
 
 DEV="${DEV:-enp1s0f0}"
 QUEUE="${QUEUE:-3}"
@@ -93,8 +98,22 @@ wait_for_log_pattern() {
     return 1
 }
 
+emit_startup_snapshot() {
+    local label="$1"
+    if [[ "$SHOW_STARTUP_LOGS" == "0" ]]; then
+        return
+    fi
+
+    echo
+    echo "[startup] ${label}"
+
+    echo "[startup] multicast routes"
+    ip route show 2>/dev/null | grep '^233\.84\.178\.' || true
+}
+
 wait_for_kernel_path_ready() {
     local deadline=$((SECONDS + KERNEL_WAIT_READY_SECS))
+    local last_status=""
     while (( SECONDS < deadline )); do
         if [[ ! -e "/sys/class/net/${KERNEL_IFACE}" ]]; then
             sleep 1
@@ -102,14 +121,26 @@ wait_for_kernel_path_ready() {
         fi
 
         if command -v doublezero >/dev/null 2>&1; then
-            if doublezero status 2>/dev/null | grep -q 'BGP Session Up'; then
+            local status_output
+            status_output="$(doublezero status 2>/dev/null || true)"
+            if [[ "$SHOW_STARTUP_LOGS" != "0" && "$status_output" != "$last_status" ]]; then
+                if grep -q 'BGP Session Up' <<<"$status_output"; then
+                    echo "[startup] tunnel status: BGP Session Up"
+                elif grep -q 'disconnected' <<<"$status_output"; then
+                    echo "[startup] tunnel status: disconnected"
+                else
+                    echo "[startup] tunnel status: transitioning"
+                fi
+                last_status="$status_output"
+            fi
+            if grep -q 'BGP Session Up' <<<"$status_output"; then
                 return 0
             fi
         else
             return 0
         fi
 
-        sleep 1
+        sleep "$SHOW_STARTUP_POLL_SECS"
     done
 
     echo "[!] kernel path not ready after ${KERNEL_WAIT_READY_SECS}s; iface=${KERNEL_IFACE}" >&2
@@ -209,9 +240,12 @@ cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
     --bin doublezero_kernel_rx \
     --bin doublezero_xdp_rx >/dev/null
 
+emit_startup_snapshot "pre-benchmark"
+
 truncate -s 0 "$KERNEL_LOG"
 if (( RUN_KERNEL == 1 )); then
     wait_for_kernel_path_ready
+    emit_startup_snapshot "kernel path ready"
     echo "[*] Running kernel-stack DoubleZero RX for ${BENCH_DURATION_SECS}s..."
     "$KERNEL_BIN" \
         --iface "$KERNEL_IFACE" \
@@ -229,16 +263,25 @@ fi
 truncate -s 0 "$XDP_LOG"
 truncate -s 0 /tmp/doublezero-rx-bench-xdp-launcher.log
 if (( RUN_XDP == 1 )); then
+    emit_startup_snapshot "before xdp launch"
     echo "[*] Running XDP/AF_XDP DoubleZero RX for ${BENCH_DURATION_SECS}s..."
     stop_pid_file /tmp/doublezero-rx.pid
     DEV="$DEV" QUEUE="$QUEUE" CPU="$CPU" ATTACH_MODE="$ATTACH_MODE" LOG="$XDP_LOG" BIN="$XDP_BIN" \
         RX_PATH_BENCH=1 PACKET_LOG_LIMIT="$XDP_PACKET_LOG_LIMIT" \
         "$XDP_SCRIPT" >/tmp/doublezero-rx-bench-xdp-launcher.log 2>&1 &
     XDP_LAUNCHER_PID="$!"
+    if [[ "$SHOW_STARTUP_LOGS" != "0" || "$SHOW_XDPDUMP_LOGS" != "0" ]]; then
+        tail --pid="$XDP_LAUNCHER_PID" -n +1 -f /tmp/doublezero-rx-bench-xdp-launcher.log &
+        XDP_LAUNCHER_TAIL_PID="$!"
+    fi
     wait_for_log_pattern /tmp/doublezero-rx-bench-xdp-launcher.log "fdir:" 25 "XDP launcher" "$XDP_LAUNCHER_PID"
     sleep "$BENCH_DURATION_SECS"
     kill "$XDP_LAUNCHER_PID" 2>/dev/null || true
     wait "$XDP_LAUNCHER_PID" 2>/dev/null || true
+    if [[ -n "${XDP_LAUNCHER_TAIL_PID:-}" ]]; then
+        kill "$XDP_LAUNCHER_TAIL_PID" 2>/dev/null || true
+        wait "$XDP_LAUNCHER_TAIL_PID" 2>/dev/null || true
+    fi
     stop_pid_file /tmp/doublezero-rx.pid
 else
     echo "xdp_rx_skipped reason=bench_mode_${BENCH_MODE}" >"$XDP_LOG"
