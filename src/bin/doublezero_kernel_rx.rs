@@ -1,7 +1,6 @@
 use std::{
     ffi::CString,
-    io,
-    mem,
+    io, mem,
     net::{Ipv4Addr, SocketAddr},
     os::fd::AsRawFd,
     sync::{
@@ -109,21 +108,6 @@ impl LatencyHist {
 
     fn min_ns(&self) -> u64 {
         if self.samples == 0 { 0 } else { self.min_ns }
-    }
-
-    fn percentile_ns(&self, pct: u64) -> u64 {
-        if self.values_ns.is_empty() {
-            return 0;
-        }
-        let mut values = self.values_ns.clone();
-        values.sort_unstable();
-        let idx = values
-            .len()
-            .saturating_mul(pct as usize)
-            .div_ceil(100)
-            .saturating_sub(1)
-            .min(values.len().saturating_sub(1));
-        values[idx]
     }
 
     fn percentiles_ns<const N: usize>(&self, pcts: &[u64; N]) -> [u64; N] {
@@ -321,10 +305,7 @@ fn enable_software_rx_timestamps(_socket: &Socket) -> Result<(), Box<dyn std::er
 }
 
 #[cfg(target_os = "linux")]
-fn recvmsg_with_timestamp(
-    fd: libc::c_int,
-    buf: &mut [u8],
-) -> io::Result<TimestampedPacket> {
+fn recvmsg_with_timestamp(fd: libc::c_int, buf: &mut [u8]) -> io::Result<TimestampedPacket> {
     let mut src: libc::sockaddr_storage = unsafe { mem::zeroed() };
     let mut iov = libc::iovec {
         iov_base: buf.as_mut_ptr() as *mut libc::c_void,
@@ -355,10 +336,7 @@ fn recvmsg_with_timestamp(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn recvmsg_with_timestamp(
-    _fd: libc::c_int,
-    _buf: &mut [u8],
-) -> io::Result<TimestampedPacket> {
+fn recvmsg_with_timestamp(_fd: libc::c_int, _buf: &mut [u8]) -> io::Result<TimestampedPacket> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "recvmsg timestamping is Linux-only",
@@ -380,10 +358,7 @@ unsafe fn extract_kernel_timestamp_ns(msg: &libc::msghdr) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
-unsafe fn sockaddr_to_string(
-    storage: &libc::sockaddr_storage,
-    len: libc::socklen_t,
-) -> String {
+unsafe fn sockaddr_to_string(storage: &libc::sockaddr_storage, len: libc::socklen_t) -> String {
     if len as usize >= mem::size_of::<libc::sockaddr_in>()
         && storage.ss_family as libc::c_int == libc::AF_INET
     {

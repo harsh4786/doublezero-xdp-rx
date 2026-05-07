@@ -9,7 +9,7 @@ use std::{
 
 use agave_xdp_rx::{
     device::{NetworkDevice, QueueId},
-    rx_loop::rx_loop_v1_doublezero,
+    rx_loop::doublezero_xdp_rx_loop,
 };
 use aya::{
     Ebpf,
@@ -69,14 +69,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bpf_object.display()
     );
 
-    rx_loop_v1_doublezero(
+    doublezero_xdp_rx_loop(
         args.cpu,
         &dev,
         QueueId(args.queue as u64),
         args.zero_copy,
         args.packet_log_limit,
         Some(&mut ebpf),
-        None,
         rx_packet_count,
         exit,
     );

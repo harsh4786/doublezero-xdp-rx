@@ -1,26 +1,20 @@
 use std::{
-    ffi::{CStr, CString, c_char},
+    ffi::{CString, c_char},
     fs,
     io::{self, ErrorKind},
     marker::PhantomData,
     mem,
-    net::Ipv4Addr,
-    ops::Sub,
     os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
-    ptr, slice,
+    ptr,
     sync::atomic::{AtomicU32, AtomicU64, Ordering},
 };
 
 use libc::{
-    AF_INET, IF_NAMESIZE, SIOCETHTOOL, SIOCGIFADDR, SIOCGIFHWADDR, SOCK_DGRAM, SYS_ioctl,
-    XDP_RING_NEED_WAKEUP, ifreq, mmap, munmap, sendto, socket, syscall, xdp_ring_offset,
+    AF_INET, IF_NAMESIZE, SIOCETHTOOL, SOCK_DGRAM, SYS_ioctl, XDP_RING_NEED_WAKEUP, ifreq, mmap,
+    munmap, sendto, socket, syscall, xdp_ring_offset,
 };
 
-use crate::{
-    netlink::MacAddress,
-    route::Router,
-    umem::{Frame, FrameOffset, SliceUmem, Umem},
-};
+use crate::umem::{Frame, FrameOffset, SliceUmem, Umem};
 
 static RX_FILL_WRITE_BATCH_NONZERO_COUNT: AtomicU64 = AtomicU64::new(0);
 
@@ -47,98 +41,8 @@ impl NetworkDevice {
         Ok(Self { if_index, if_name })
     }
 
-    pub fn new_from_index(if_index: u32) -> Result<Self, io::Error> {
-        let mut buf = [0u8; 1024];
-        let ret = unsafe { libc::if_indextoname(if_index, buf.as_mut_ptr() as *mut c_char) };
-        if ret.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-
-        let cstr = unsafe { CStr::from_ptr(ret) };
-        let if_name = String::from_utf8_lossy(cstr.to_bytes()).to_string();
-
-        Ok(Self { if_index, if_name })
-    }
-
-    pub fn new_from_default_route() -> Result<Self, io::Error> {
-        let router = Router::new()?;
-        let default_route = router.default().unwrap();
-        NetworkDevice::new_from_index(default_route.if_index)
-    }
-
     pub fn name(&self) -> &str {
         &self.if_name
-    }
-
-    pub fn if_index(&self) -> u32 {
-        self.if_index
-    }
-
-    pub fn mac_addr(&self) -> Result<MacAddress, io::Error> {
-        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-
-        let mut req: ifreq = unsafe { mem::zeroed() };
-        let if_name = CString::new(self.if_name.as_bytes()).unwrap();
-
-        let if_name_bytes = if_name.as_bytes_with_nul();
-        let len = std::cmp::min(if_name_bytes.len(), IF_NAMESIZE);
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                if_name_bytes.as_ptr() as *const c_char,
-                req.ifr_name.as_mut_ptr(),
-                len,
-            );
-        }
-
-        let result = unsafe { syscall(SYS_ioctl, fd.as_raw_fd(), SIOCGIFHWADDR, &mut req) };
-        if result < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(MacAddress(
-            unsafe {
-                slice::from_raw_parts(req.ifr_ifru.ifru_hwaddr.sa_data.as_ptr() as *const u8, 6)
-            }
-            .try_into()
-            .unwrap(),
-        ))
-    }
-
-    pub fn ipv4_addr(&self) -> Result<Ipv4Addr, io::Error> {
-        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-
-        let mut req: ifreq = unsafe { mem::zeroed() };
-        let if_name = CString::new(self.if_name.as_bytes()).unwrap();
-
-        let if_name_bytes = if_name.as_bytes_with_nul();
-        let len = std::cmp::min(if_name_bytes.len(), IF_NAMESIZE);
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                if_name_bytes.as_ptr() as *const c_char,
-                req.ifr_name.as_mut_ptr(),
-                len,
-            );
-        }
-
-        let result = unsafe { syscall(SYS_ioctl, fd.as_raw_fd(), SIOCGIFADDR, &mut req) };
-        if result < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let addr = unsafe {
-            let addr_ptr = &req.ifr_ifru.ifru_addr as *const libc::sockaddr;
-            let sin_addr = (*(addr_ptr as *const libc::sockaddr_in)).sin_addr;
-            Ipv4Addr::from(sin_addr.s_addr.to_ne_bytes())
-        };
-        Ok(addr)
     }
 
     pub fn open_queue(&self, queue_id: QueueId) -> Result<DeviceQueue, io::Error> {
@@ -289,15 +193,6 @@ impl RingConsumer {
         Some(index)
     }
 
-    pub fn consume_available(&mut self) -> Option<u32> {
-        if self.cached_consumer == self.cached_producer {
-            return None;
-        }
-        let index = self.cached_producer.sub(self.cached_consumer);
-        self.cached_consumer = self.cached_consumer.wrapping_add(index);
-        Some(index)
-    }
-
     pub fn consume_till(&mut self, offset: u32) {
         self.cached_consumer = self.cached_consumer.wrapping_add(offset);
     }
@@ -323,18 +218,6 @@ impl RingConsumer {
             self.commit();
         }
         self.cached_producer = unsafe { (*self.producer).load(Ordering::Acquire) };
-    }
-
-    pub fn peek_at(&self, lookahead: u32, ring_size: u32) -> Option<u32> {
-        // no available packets
-        let avail = self.cached_producer.wrapping_sub(self.cached_consumer);
-        if lookahead >= avail {
-            return None;
-        }
-
-        // Compute index inside ring buffer
-        let index = (self.cached_consumer.wrapping_add(lookahead)) & (ring_size - 1);
-        Some(index)
     }
 }
 
@@ -372,15 +255,6 @@ impl RingProducer {
         Some(index)
     }
 
-    pub fn produce_batch<const N: usize>(&mut self, to_produce: u32) -> Option<u32> {
-        if self.available() < to_produce {
-            return None;
-        }
-
-        self.cached_producer = self.cached_producer.wrapping_add(to_produce);
-        let index = self.cached_producer;
-        Some(index)
-    }
     pub fn commit(&mut self) {
         unsafe { (*self.producer).store(self.cached_producer, Ordering::Release) };
     }

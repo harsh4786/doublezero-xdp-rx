@@ -4,7 +4,7 @@ use std::{
     mem,
     os::fd::{AsFd, AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd, RawFd},
     ptr,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::Ordering,
 };
 
 use aya::{Ebpf, maps::XskMap};
@@ -21,10 +21,8 @@ use crate::{
         DeviceQueue, RingConsumer, RingMmap, RingProducer, RxFillRing, TxCompletionRing, XdpDesc,
         mmap_ring,
     },
-    umem::{Frame, FrameOffset, Umem},
+    umem::{Frame, Umem},
 };
-
-static RX_READ_BATCH_NONZERO_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub struct Socket<U: Umem> {
     fd: OwnedFd,
@@ -539,72 +537,7 @@ impl RxRing {
         Ok(result as u64)
     }
 
-    pub fn read(&mut self) -> Option<XdpDesc> {
-        let index = self.consumer.consume()? & self.size.saturating_sub(1);
-        let desc = unsafe { ptr::read(self.mmap.desc.add(index as usize)) };
-        Some(desc)
-    }
-
-    pub fn read_all_available(&mut self) -> Option<Vec<XdpDesc>> {
-        let avail = self.available();
-        if avail == 0 {
-            return None;
-        }
-
-        let mut descs = Vec::with_capacity(avail);
-        unsafe {
-            let start_idx = self.consumer.get_index() & (self.size.saturating_sub(1));
-            // SAFETY: make sure we don't cross the ring boundary
-            let contiguous = self.size - start_idx;
-            let count = avail.min(contiguous as usize);
-            let src = self.mmap.desc.add(start_idx as usize);
-            std::ptr::copy_nonoverlapping(src, descs.as_mut_ptr(), count);
-            descs.set_len(count);
-
-            self.consumer.consume_available();
-
-            // If ring wrapped around and we still have more
-            if count < avail {
-                let remaining = avail - count;
-                let src2 = self.mmap.desc;
-
-                let dst2 = descs.as_mut_ptr().add(count);
-                std::ptr::copy_nonoverlapping(src2, dst2, remaining);
-                descs.set_len(avail);
-                for _ in 0..remaining {
-                    self.consumer.consume();
-                }
-            }
-        }
-        Some(descs)
-    }
-
-    pub fn read_batch_contiguous<const N: usize>(
-        &mut self,
-        out: &mut [XdpDesc; N],
-    ) -> Option<usize> {
-        self.consumer.sync(true);
-        let avail = self.consumer.available() as usize;
-        // let to_read = core::cmp::min(N, avail);
-        let mut count_returned: usize;
-        unsafe {
-            let start_idx = self.consumer.get_index() & (self.size.saturating_sub(1));
-            // let contiguous = self.size - start_idx;
-            // let count = avail.min(contiguous as usize);
-            count_returned = avail as usize;
-            let src = self.mmap.desc.add(start_idx as usize);
-            std::ptr::copy_nonoverlapping(src, out.as_mut_ptr(), avail as usize);
-            self.consumer.consume_till(avail as u32);
-            self.consumer.sync(true);
-        }
-        Some(count_returned)
-    }
-
-    pub fn read_batch<const N: usize>(
-        &mut self,
-        out: &mut [XdpDesc; N],
-        // frames: &mut [FrameOffset; N],
-    ) -> Option<usize> {
+    pub(crate) fn read_batch<const N: usize>(&mut self, out: &mut [XdpDesc; N]) -> Option<usize> {
         self.consumer.sync(true);
 
         let avail = self.consumer.available() as usize;
@@ -614,21 +547,13 @@ impl RxRing {
         let idx = self.consumer.get_index() as usize;
 
         for i in 0..to_read {
-            unsafe {
-                let ring_index = (idx + i) & (self.size.saturating_sub(1) as usize);
-                out[i] = unsafe { *self.mmap.desc.add(ring_index) };
-                // frames[i] = FrameOffset(out[i].addr as usize);
-            }
+            let ring_index = (idx + i) & (self.size.saturating_sub(1) as usize);
+            out[i] = unsafe { *self.mmap.desc.add(ring_index) };
         }
 
         self.consumer.consume_till(to_read as u32);
         self.consumer.sync(true);
 
         Some(to_read)
-    }
-
-    pub fn peek_at(&self, offset: u32) -> Option<XdpDesc> {
-        let index = self.consumer.peek_at(offset, self.size)?;
-        unsafe { Some(ptr::read(self.mmap.desc.add(index as usize))) }
     }
 }

@@ -8,36 +8,21 @@ description = "Standalone AF_XDP userspace receiver and benchmark tools for Doub
 name = "agave_xdp_rx"
 path = "src/lib.rs"
 
-
 [profile.release]
-debug = true            
-lto = "thin"            
-codegen-units = 1         
+debug = true
+lto = "thin"
+codegen-units = 1
 opt-level = 3
 
 [dependencies]
-arc-swap = "1.6"
-crossbeam-channel = "0.5.15"
 libc = "0.2.175"
 log = "0.4.28"
-thiserror = "2.0.16"
 clap = { version = "4", features = ["derive", "env"] }
 ctrlc = "3"
-signal-hook = "*"
-socket2 = "0.5"
+socket2 = { version = "0.5", features = ["all"] }
 core_affinity = "0.8.3"
 env_logger = "0.11"
-aya-log = "0.2.1"
-solana-packet = "4"
-bytes = "1.11.0"
-agave-xdp-ebpf = "3.1.6"
-solana-perf = "=2.2.1"
-rand = "0.8"
-que = "0.4.5"
-bytemuck = "1.22.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 aya = "0.13"
-aya-ebpf-bindings = "*"
 caps = "0.5.5"
-crc32fast = "1"

@@ -10,29 +10,15 @@
 
 #[cfg(target_os = "linux")]
 pub mod device;
-#[cfg(target_os = "linux")]
-pub mod netlink;
-#[cfg(target_os = "linux")]
 pub mod packet;
-#[cfg(target_os = "linux")]
-pub mod program;
-#[cfg(target_os = "linux")]
-pub mod route;
 #[cfg(target_os = "linux")]
 pub mod rx_loop;
 #[cfg(target_os = "linux")]
 pub mod socket;
 #[cfg(target_os = "linux")]
-pub mod stats;
-#[cfg(target_os = "linux")]
-pub mod tx_loop;
-#[cfg(target_os = "linux")]
 pub mod umem;
 
 use std::io;
-
-#[cfg(target_os = "linux")]
-pub use program::load_xdp_program;
 
 #[cfg(target_os = "linux")]
 pub fn set_cpu_affinity(cpus: impl IntoIterator<Item = usize>) -> Result<(), io::Error> {

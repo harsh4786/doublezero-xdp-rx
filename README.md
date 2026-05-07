@@ -23,7 +23,7 @@ This repository is proprietary. See [LICENSE](/root/doublezero-xdp-rx/LICENSE).
 ## Build
 
 ```bash
-cargo build --bin doublezero_xdp_rx --bin doublezero_kernel_rx
+cargo build --release --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ```
 
 ## Run
