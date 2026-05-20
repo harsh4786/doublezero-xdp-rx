@@ -54,6 +54,8 @@ cargo build --release --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 
 ## Run
 
+> **Important:** Before running, edit `run_doublezero_rx.sh` and `run_doublezero_rx_bench.sh` to set `FDIR_SRC_IP`, `FDIR_DST_IP`, and `DZ_CLIENT_IP` to your own DoubleZero source/destination IPs. The defaults in those scripts are placeholders and must be replaced (either inline or by exporting the env vars before launching).
+
 ```bash
 ./run_doublezero_rx.sh
 ```
