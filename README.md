@@ -4,7 +4,7 @@ Standalone userspace AF_XDP receiver and latency benchmark tooling for DoubleZer
 
 ## License
 
-This repository is proprietary. See [LICENSE](/root/doublezero-xdp-rx/LICENSE).
+Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See [LICENSE](LICENSE).
 
 ## Contents
 
