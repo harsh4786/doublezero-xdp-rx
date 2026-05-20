@@ -20,6 +20,32 @@ This repository is proprietary. See [LICENSE](/root/doublezero-xdp-rx/LICENSE).
 - A built DoubleZero Aya eBPF object from a sibling `doublezero-xdp` repo or `DOUBLEZERO_XDP_BPF_OBJECT`
 - Root privileges to attach XDP and manage Flow Director rules
 
+## Tested NIC / XDP Setup
+
+These are the host details used for the DoubleZero kernel-vs-XDP RX testing on this machine:
+
+- Physical NIC: `enp1s0f0`
+- PCI device: `0000:01:00.0`
+- Adapter: Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection, rev `01`
+- Driver: `ixgbe`
+- Driver version: `6.8.0-60-generic`
+- Firmware version: `0x800006d1, 1.1876.0`
+- Link: `10000Mb/s`, full duplex, auto-negotiation off
+- Channels: `24` combined, with AF_XDP bound to queue `3`
+- Ring settings during capture: RX `512`, TX `512`; hardware maximum RX/TX `8192`
+- XDP attach mode: `drv`, via `--attach-mode drv` / `ATTACH_MODE=drv`
+- Kernel comparison interface: `doublezero1`
+- DoubleZero shred UDP port: `7733`
+- Flow Director steering: outer IPv4 `<your-src-ip> -> <your-dst-ip>` to queue `3`, rule loc `2043`
+
+Relevant feature state during capture:
+
+- `ntuple-filters`: on
+- `receive-hashing`: on
+- `generic-receive-offload`: on
+- `large-receive-offload`: off
+- `rx-vlan-offload`: on
+
 ## Build
 
 ```bash
