@@ -1,45 +1,49 @@
 # DoubleZero XDP RX Setup
 
-This repo contains the userspace AF_XDP receiver and the UDP-vs-XDP benchmark tooling for DoubleZero shred traffic.
+This repo is a Cargo workspace with both the userspace AF_XDP receiver / UDP-vs-XDP benchmark tooling and the Aya eBPF/XDP program source.
 
-It does **not** currently contain the Aya eBPF/XDP program source. The XDP program lives in the sibling repo:
+Workspace members:
 
-- `/root/doublezero-xdp`
+- `.` — userspace crate `doublezero-xdp-rx`
+- `doublezero-xdp-ebpf/` — Aya eBPF program (`#![no_std]/#![no_main]`)
 
-The userspace binary loads a built eBPF object from one of these locations:
+The userspace binary loads a built eBPF object from one of these locations (first match wins):
 
 1. `--bpf-object <path>`
 2. `DOUBLEZERO_XDP_BPF_OBJECT=<path>`
-3. default sibling path:
-   `/root/doublezero-xdp/target/bpfel-unknown-none/release/doublezero-xdp-ebpf`
+3. default in-repo path:
+   `target/bpfel-unknown-none/release/doublezero-xdp-ebpf`
+
+At runtime the loader calls `aya::Ebpf::load_file(<path>)`, then attaches the `doublezero_xdp_redirect` XDP program to the configured NIC and binds an AF_XDP socket to a queue via the `xsks_map`.
 
 ## Repo Layout
 
-- This repo: userspace RX binaries
+- `src/` — userspace AF_XDP library + binaries
   - `doublezero_xdp_rx`
   - `doublezero_kernel_rx`
-  - `run_doublezero_rx.sh`
-  - `run_doublezero_rx_bench.sh`
-- Sibling repo: Aya XDP program
-  - `/root/doublezero-xdp`
-
-So, no: the `doublezero-xdp` program is not in the same repo as this binary right now. The binary does not import the eBPF source directly during build. It loads the compiled eBPF object at runtime.
+- `doublezero-xdp-ebpf/src/main.rs` — XDP classifier (GRE decap, shred multicast match, `XskMap::redirect`)
+- `run_doublezero_rx.sh` — launcher + FDIR rule
+- `run_doublezero_rx_bench.sh` — kernel-vs-XDP latency benchmark
 
 ## Build
 
-Build the userspace binaries in this repo:
+Build the userspace binaries (host target):
 
 ```bash
 cd /root/doublezero-xdp-rx
 cargo build --release --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ```
 
-Build the eBPF program in the sibling repo separately:
+Build the eBPF object (nightly + `bpfel-unknown-none`):
 
 ```bash
-cd /root/doublezero-xdp
-# build command depends on that repo's build flow
+cargo +nightly build --release \
+  --target bpfel-unknown-none \
+  -Z build-std=core \
+  -p doublezero-xdp-ebpf
 ```
+
+Output: `target/bpfel-unknown-none/release/doublezero-xdp-ebpf`.
 
 ## DoubleZero Network Expectations
 
@@ -153,7 +157,7 @@ cd /root/doublezero-xdp-rx
 SHOW_STARTUP_LOGS=1 SHOW_XDPDUMP_LOGS=1 XDPDUMP_DURATION_SECS=10 ./run_doublezero_rx.sh
 ```
 
-If the eBPF object is not in the sibling default path:
+If you built the eBPF object somewhere other than the default in-repo path (`target/bpfel-unknown-none/release/doublezero-xdp-ebpf`), override it:
 
 ```bash
 cd /root/doublezero-xdp-rx
@@ -204,12 +208,3 @@ ip -br addr show
 
 If `doublezero1` is missing, the UDP benchmark leg will fail immediately.
 
-## Current Limitation
-
-If you want the userspace binary repo to build the eBPF program directly as part of one tree, the next step is to fold `/root/doublezero-xdp` into this repo as:
-
-1. a git submodule
-2. a sibling workspace member
-3. or a full merge of the eBPF source into this repo
-
-Right now it is a two-repo setup by design.

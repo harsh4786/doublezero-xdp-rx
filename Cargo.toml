@@ -1,3 +1,8 @@
+[workspace]
+members = [".", "doublezero-xdp-ebpf"]
+default-members = ["."]
+resolver = "2"
+
 [package]
 name = "doublezero-xdp-rx"
 version = "0.1.0"

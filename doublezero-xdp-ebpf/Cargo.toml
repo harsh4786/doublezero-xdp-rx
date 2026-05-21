@@ -1,0 +1,13 @@
+[package]
+name = "doublezero-xdp-ebpf"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[[bin]]
+name = "doublezero-xdp-ebpf"
+path = "src/main.rs"
+
+[dependencies]
+aya-ebpf = "0.1.1"

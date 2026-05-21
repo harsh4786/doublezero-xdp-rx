@@ -8,16 +8,20 @@ Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See [LICEN
 
 ## Contents
 
-- `doublezero_xdp_rx`: attach the DoubleZero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
-- `doublezero_kernel_rx`: receive the same multicast feed through the normal UDP socket path for comparison.
-- `run_doublezero_rx.sh`: launch the XDP receiver and install the FDIR rule after AF_XDP is armed.
-- `run_doublezero_rx_bench.sh`: run the UDP and AF_XDP receivers back-to-back and print a latency table.
+This is a Cargo workspace with two crates:
+
+- `doublezero-xdp-rx` (root): userspace AF_XDP receivers and benchmark tooling.
+  - `doublezero_xdp_rx`: attach the DoubleZero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
+  - `doublezero_kernel_rx`: receive the same multicast feed through the normal UDP socket path for comparison.
+  - `run_doublezero_rx.sh`: launch the XDP receiver and install the FDIR rule after AF_XDP is armed.
+  - `run_doublezero_rx_bench.sh`: run the UDP and AF_XDP receivers back-to-back and print a latency table.
+- `doublezero-xdp-ebpf`: the Aya-based XDP/eBPF program (`#![no_std]/#![no_main]`). Decapsulates GRE and redirects DoubleZero shred multicast UDP into the `xsks_map` AF_XDP socket map. The userspace `doublezero_xdp_rx` binary loads the compiled object via `aya::Ebpf::load_file` and attaches the `doublezero_xdp_redirect` XDP program to the configured NIC. See [`doublezero-xdp-ebpf/SPEC.md`](doublezero-xdp-ebpf/SPEC.md) for the full classifier policy, header layout, and constants.
 
 ## Requirements
 
 - Linux with AF_XDP / XDP support
 - `ethtool`
-- A built DoubleZero Aya eBPF object from a sibling `doublezero-xdp` repo or `DOUBLEZERO_XDP_BPF_OBJECT`
+- Rust nightly (the eBPF crate needs `-Z build-std=core` for the `bpfel-unknown-none` target)
 - Root privileges to attach XDP and manage Flow Director rules
 
 ## Tested NIC / XDP Setup
@@ -48,9 +52,28 @@ Relevant feature state during capture:
 
 ## Build
 
+Build the userspace binaries (host target):
+
 ```bash
 cargo build --release --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ```
+
+Build the eBPF program (cross-compiled to `bpfel-unknown-none`, requires nightly with `rust-src`):
+
+```bash
+cargo +nightly build --release \
+  --target bpfel-unknown-none \
+  -Z build-std=core \
+  -p doublezero-xdp-ebpf
+```
+
+The resulting object is written to:
+
+```
+target/bpfel-unknown-none/release/doublezero-xdp-ebpf
+```
+
+This is the default path the `doublezero_xdp_rx` binary searches when neither `--bpf-object` nor `DOUBLEZERO_XDP_BPF_OBJECT` is set, and is the path `run_doublezero_rx.sh` uses for `BPF_OBJECT`. The userspace loader calls `aya::Ebpf::load_file(<path>)` and then attaches the `doublezero_xdp_redirect` XDP program to the configured NIC.
 
 ## Run
 
@@ -60,7 +83,7 @@ cargo build --release --bin doublezero_xdp_rx --bin doublezero_kernel_rx
 ./run_doublezero_rx.sh
 ```
 
-If the eBPF object is not in the default location, override it:
+To override the eBPF object location (e.g. if you built it elsewhere):
 
 ```bash
 DOUBLEZERO_XDP_BPF_OBJECT=/path/to/doublezero-xdp-ebpf ./run_doublezero_rx.sh

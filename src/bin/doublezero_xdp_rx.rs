@@ -95,9 +95,9 @@ fn resolve_bpf_object(cli_path: Option<PathBuf>) -> Result<PathBuf, Box<dyn std:
     }
 
     let candidates = [
-        PathBuf::from("/root/doublezero-xdp/target/bpfel-unknown-none/release/doublezero-xdp-ebpf"),
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../doublezero-xdp/target/bpfel-unknown-none/release/doublezero-xdp-ebpf"),
+            .join("target/bpfel-unknown-none/release/doublezero-xdp-ebpf"),
+        PathBuf::from("target/bpfel-unknown-none/release/doublezero-xdp-ebpf"),
     ];
 
     for candidate in candidates {
