@@ -107,7 +107,7 @@ fn resolve_bpf_object(cli_path: Option<PathBuf>) -> Result<PathBuf, Box<dyn std:
     }
 
     Err(
-        "DoubleZero XDP eBPF object not found; pass --bpf-object or set DOUBLEZERO_XDP_BPF_OBJECT"
+        "Doublezero XDP eBPF object not found; pass --bpf-object or set DOUBLEZERO_XDP_BPF_OBJECT"
             .into(),
     )
 }

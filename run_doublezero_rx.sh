@@ -134,7 +134,7 @@ wait_for_doublezero_ready() {
         sleep "${SHOW_STARTUP_POLL_SECS}"
     done
 
-    echo "timed out waiting for DoubleZero multicast routes" >&2
+    echo "timed out waiting for Doublezero multicast routes" >&2
     if command -v doublezero >/dev/null 2>&1; then
         doublezero status >&2 || true
     fi

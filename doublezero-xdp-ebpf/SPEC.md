@@ -6,7 +6,7 @@ Source: [`src/main.rs`](src/main.rs).
 
 ## Purpose
 
-Identify DoubleZero shred traffic — GRE-encapsulated IPv4 carrying multicast UDP shreds — and redirect it from the NIC RX path into an AF_XDP socket via the pinned `xsks_map`. All other traffic (including DoubleZero control plane such as BGP-over-TCP and heartbeats on UDP 5765) is left on the kernel networking stack with `XDP_PASS`.
+Identify Doublezero shred traffic — GRE-encapsulated IPv4 carrying multicast UDP shreds — and redirect it from the NIC RX path into an AF_XDP socket via the pinned `xsks_map`. All other traffic (including Doublezero control plane such as BGP-over-TCP and heartbeats on UDP 5765) is left on the kernel networking stack with `XDP_PASS`.
 
 This is RX-only. The program never modifies, drops, or forwards packets.
 
@@ -68,12 +68,12 @@ Anything outside this shape (IPv4 options, GRE checksum/key/sequence, inner IPv6
 
 | Name                   | Value             | Meaning                                   |
 |------------------------|-------------------|-------------------------------------------|
-| `INNER_SHRED_PORT`     | 7733              | DoubleZero shred UDP dport                |
-| `INNER_HEARTBEAT_PORT` | 5765              | DoubleZero heartbeat UDP dport (passed)   |
+| `INNER_SHRED_PORT`     | 7733              | Doublezero shred UDP dport                |
+| `INNER_HEARTBEAT_PORT` | 5765              | Doublezero heartbeat UDP dport (passed)   |
 | `INNER_SHRED_MCAST`    | 233.84.178.1      | Accepted shred multicast destination      |
 | `INNER_SHRED_MCAST_ALT`| 233.84.178.12     | Accepted shred multicast destination (alt)|
 
-Change these in `src/main.rs` if the DoubleZero feed moves to a different port or group.
+Change these in `src/main.rs` if the Doublezero feed moves to a different port or group.
 
 ## License section
 

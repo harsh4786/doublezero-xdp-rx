@@ -7,7 +7,7 @@ resolver = "2"
 name = "doublezero-xdp-rx"
 version = "0.1.0"
 edition = "2024"
-description = "Standalone AF_XDP userspace receiver and benchmark tools for DoubleZero GRE shred traffic"
+description = "Standalone AF_XDP userspace receiver and benchmark tools for Doublezero GRE shred traffic"
 license = "AGPL-3.0-or-later"
 
 [lib]

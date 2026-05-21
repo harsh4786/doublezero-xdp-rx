@@ -221,7 +221,7 @@ print_table() {
     xdp_core="$(cpu_core_id "$CPU")"
 
     echo
-    echo "DoubleZero RX Latency Benchmark"
+    echo "Doublezero RX Latency Benchmark"
     printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+\n'
     printf '| %-10s | %-9s | %-7s | %-6s | %-8s | %-8s | %-8s | %-8s | %-8s | %-8s |\n' \
         "mode" "linux_cpu" "core_id" "queue" "packets" "p50_us" "p90_us" "p95_us" "p99_us" "avg_us"
@@ -235,7 +235,7 @@ print_table() {
     printf '+------------+-----------+---------+--------+----------+----------+----------+----------+----------+----------+\n'
 }
 
-echo "[*] Building DoubleZero RX binaries..."
+echo "[*] Building Doublezero RX binaries..."
 cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
     --release \
     --bin doublezero_kernel_rx \
@@ -247,7 +247,7 @@ truncate -s 0 "$KERNEL_LOG"
 if (( RUN_KERNEL == 1 )); then
     wait_for_kernel_path_ready
     emit_startup_snapshot "kernel path ready"
-    echo "[*] Running kernel-stack DoubleZero RX for ${BENCH_DURATION_SECS}s..."
+    echo "[*] Running kernel-stack Doublezero RX for ${BENCH_DURATION_SECS}s..."
     "$KERNEL_BIN" \
         --iface "$KERNEL_IFACE" \
         --group "$KERNEL_GROUP" \
@@ -265,7 +265,7 @@ truncate -s 0 "$XDP_LOG"
 truncate -s 0 /tmp/doublezero-rx-bench-xdp-launcher.log
 if (( RUN_XDP == 1 )); then
     emit_startup_snapshot "before xdp launch"
-    echo "[*] Running XDP/AF_XDP DoubleZero RX for ${BENCH_DURATION_SECS}s..."
+    echo "[*] Running XDP/AF_XDP Doublezero RX for ${BENCH_DURATION_SECS}s..."
     stop_pid_file /tmp/doublezero-rx.pid
     DEV="$DEV" QUEUE="$QUEUE" CPU="$CPU" ATTACH_MODE="$ATTACH_MODE" LOG="$XDP_LOG" BIN="$XDP_BIN" \
         RX_PATH_BENCH=1 PACKET_LOG_LIMIT="$XDP_PACKET_LOG_LIMIT" \
@@ -292,7 +292,7 @@ else
 fi
 
 echo
-echo "DoubleZero RX benchmark artifacts:"
+echo "Doublezero RX benchmark artifacts:"
 echo "  kernel log: $KERNEL_LOG"
 echo "  xdp log:    $XDP_LOG"
 echo "  xdp launcher log: /tmp/doublezero-rx-bench-xdp-launcher.log"

@@ -1,4 +1,4 @@
-# DoubleZero XDP RX Setup
+# Doublezero XDP RX Setup
 
 This repo is a Cargo workspace with both the userspace AF_XDP receiver / UDP-vs-XDP benchmark tooling and the Aya eBPF/XDP program source.
 
@@ -45,20 +45,20 @@ cargo +nightly build --release \
 
 Output: `target/bpfel-unknown-none/release/doublezero-xdp-ebpf`.
 
-## DoubleZero Network Expectations
+## Doublezero Network Expectations
 
 Current working assumptions:
 
 - physical NIC receiving outer traffic: `enp1s0f0`
-- DoubleZero tunnel interface for kernel-path multicast: `doublezero1`
-- outer DoubleZero source IP: `<your-src-ip>`
+- Doublezero tunnel interface for kernel-path multicast: `doublezero1`
+- outer Doublezero source IP: `<your-src-ip>`
 - local public destination IP: `<your-dst-ip>`
 - queue used for AF_XDP: `3`
 - XDP attach mode: `drv`
-- DoubleZero shred UDP port: `7733`
+- Doublezero shred UDP port: `7733`
 - expected multicast destination: `233.84.178.12`
 
-DoubleZero shred delivery shape:
+Doublezero shred delivery shape:
 
 ```text
 Ethernet
@@ -71,7 +71,7 @@ shred payload
 
 ## Firewall Rules
 
-These are the firewall rules we were using for DoubleZero:
+These are the firewall rules we were using for Doublezero:
 
 ```bash
 sudo iptables -A OUTPUT -p gre -j ACCEPT
@@ -108,7 +108,7 @@ The XDP RX benchmark defaults to:
 
 ## FDIR Rule
 
-We steer the outer IPv4 DoubleZero GRE packets to RX queue `3` with this Flow Director rule:
+We steer the outer IPv4 Doublezero GRE packets to RX queue `3` with this Flow Director rule:
 
 ```bash
 sudo ethtool -U enp1s0f0 flow-type ip4 \
@@ -141,7 +141,7 @@ cd /root/doublezero-xdp-rx
 ./run_doublezero_rx.sh
 ```
 
-For the demo startup view with DoubleZero route/status logs and `xdpdump`
+For the demo startup view with Doublezero route/status logs and `xdpdump`
 showing XDP return actions (`PASS`/`REDIRECT`):
 
 ```bash
@@ -167,13 +167,13 @@ DOUBLEZERO_XDP_BPF_OBJECT=/path/to/doublezero-xdp-ebpf ./run_doublezero_rx.sh
 What happens:
 
 1. Clear the startup screen when startup logs are enabled
-2. Wait for DoubleZero multicast routes before starting XDP RX
+2. Wait for Doublezero multicast routes before starting XDP RX
 3. Start `doublezero_xdp_rx`
 4. Load and attach the XDP program on `enp1s0f0`
 5. Pin `xsks_map`
 6. Bind AF_XDP socket on queue `3`
 7. Wait for `XDP RX armed`
-8. Install the FDIR rule to push the DoubleZero outer flow into queue `3`
+8. Install the FDIR rule to push the Doublezero outer flow into queue `3`
 9. Optionally start `xdpdump --rx-capture=exit` to print XDP actions
 
 ## Run Kernel vs XDP Benchmark
@@ -191,7 +191,7 @@ This runs:
 
 ## Operational Checks
 
-Check the DoubleZero client:
+Check the Doublezero client:
 
 ```bash
 doublezero status

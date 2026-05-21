@@ -1,6 +1,6 @@
 # doublezero-xdp-rx
 
-Standalone userspace AF_XDP receiver and latency benchmark tooling for DoubleZero GRE-encapsulated shred traffic.
+Standalone userspace AF_XDP receiver and latency benchmark tooling for Doublezero GRE-encapsulated shred traffic.
 
 ## License
 
@@ -26,7 +26,7 @@ This is a Cargo workspace with two crates:
 
 ## Tested NIC / XDP Setup
 
-These are the host details used for the DoubleZero kernel-vs-XDP RX testing on this machine:
+These are the host details used for the Doublezero kernel-vs-XDP RX testing on this machine:
 
 - Physical NIC: `enp1s0f0`
 - PCI device: `0000:01:00.0`
@@ -39,7 +39,7 @@ These are the host details used for the DoubleZero kernel-vs-XDP RX testing on t
 - Ring settings during capture: RX `512`, TX `512`; hardware maximum RX/TX `8192`
 - XDP attach mode: `drv`, via `--attach-mode drv` / `ATTACH_MODE=drv`
 - Kernel comparison interface: `doublezero1`
-- DoubleZero shred UDP port: `7733`
+- Doublezero shred UDP port: `7733`
 - Flow Director steering: outer IPv4 `<your-src-ip> -> <your-dst-ip>` to queue `3`, rule loc `2043`
 
 Relevant feature state during capture:
@@ -50,15 +50,15 @@ Relevant feature state during capture:
 - `large-receive-offload`: off
 - `rx-vlan-offload`: on
 
-## DoubleZero Edge / Seat-Specific Values
+## Doublezero Edge / Seat-Specific Values
 
-This repository documents the DoubleZero packet shape and the local setup used for testing, but the exact underlay and multicast values are not universal. They depend on the DoubleZero edge/seat allocated to the machine or device.
+This repository documents the Doublezero packet shape and the local setup used for testing, but the exact underlay and multicast values are not universal. They depend on the Doublezero edge/seat allocated to the machine or device.
 
 At minimum, expect these values to be seat-specific:
 
-- Outer GRE source IP: the remote DoubleZero edge endpoint.
+- Outer GRE source IP: the remote Doublezero edge endpoint.
 - Outer GRE destination IP: the local public IP for this host/seat.
-- Inner shred multicast destination: the multicast group assigned for the DoubleZero feed.
+- Inner shred multicast destination: the multicast group assigned for the Doublezero feed.
 - Kernel multicast interface/group used by `doublezero_kernel_rx`, for example `doublezero1` and `233.84.178.12` on the tested setup.
 
 The current eBPF classifier has the accepted inner multicast destinations hardcoded in [`doublezero-xdp-ebpf/src/main.rs`](doublezero-xdp-ebpf/src/main.rs):
@@ -68,7 +68,7 @@ const INNER_SHRED_MCAST: u32 = u32::from_be_bytes([233, 84, 178, 1]);
 const INNER_SHRED_MCAST_ALT: u32 = u32::from_be_bytes([233, 84, 178, 12]);
 ```
 
-To use a different DoubleZero edge/seat, update those constants to include the multicast destination assigned to that seat, then rebuild the eBPF object:
+To use a different Doublezero edge/seat, update those constants to include the multicast destination assigned to that seat, then rebuild the eBPF object:
 
 ```bash
 cargo +nightly build --release \
@@ -106,7 +106,7 @@ This is the default path the `doublezero_xdp_rx` binary searches when neither `-
 
 ## Run
 
-> **Important:** Before running, set the DoubleZero edge/seat-specific values for your allocation. At minimum, edit `run_doublezero_rx.sh` and `run_doublezero_rx_bench.sh`, or export env vars, for `FDIR_SRC_IP`, `FDIR_DST_IP`, `KERNEL_GROUP`, and `DZ_CLIENT_IP`. If your assigned shred multicast destination is not one of the hardcoded eBPF groups, update `INNER_SHRED_MCAST` / `INNER_SHRED_MCAST_ALT` in `doublezero-xdp-ebpf/src/main.rs` and rebuild the eBPF object before launching.
+> **Important:** Before running, set the Doublezero edge/seat-specific values for your allocation. At minimum, edit `run_doublezero_rx.sh` and `run_doublezero_rx_bench.sh`, or export env vars, for `FDIR_SRC_IP`, `FDIR_DST_IP`, `KERNEL_GROUP`, and `DZ_CLIENT_IP`. If your assigned shred multicast destination is not one of the hardcoded eBPF groups, update `INNER_SHRED_MCAST` / `INNER_SHRED_MCAST_ALT` in `doublezero-xdp-ebpf/src/main.rs` and rebuild the eBPF object before launching.
 
 ```bash
 ./run_doublezero_rx.sh
