@@ -11,11 +11,11 @@ Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See [LICEN
 This is a Cargo workspace with two crates:
 
 - `doublezero-xdp-rx` (root): userspace AF_XDP receivers and benchmark tooling.
-  - `doublezero_xdp_rx`: attach the DoubleZero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
+  - `doublezero_xdp_rx`: attach the Doublezero Aya XDP program, arm AF_XDP on a queue, and log redirected packets.
   - `doublezero_kernel_rx`: receive the same multicast feed through the normal UDP socket path for comparison.
   - `run_doublezero_rx.sh`: launch the XDP receiver and install the FDIR rule after AF_XDP is armed.
   - `run_doublezero_rx_bench.sh`: run the UDP and AF_XDP receivers back-to-back and print a latency table.
-- `doublezero-xdp-ebpf`: the Aya-based XDP/eBPF program (`#![no_std]/#![no_main]`). Decapsulates GRE and redirects DoubleZero shred multicast UDP into the `xsks_map` AF_XDP socket map. The userspace `doublezero_xdp_rx` binary loads the compiled object via `aya::Ebpf::load_file` and attaches the `doublezero_xdp_redirect` XDP program to the configured NIC. See [`doublezero-xdp-ebpf/SPEC.md`](doublezero-xdp-ebpf/SPEC.md) for the full classifier policy, header layout, and constants.
+- `doublezero-xdp-ebpf`: the Aya-based XDP/eBPF program (`#![no_std]/#![no_main]`) decapsulates GRE and redirects Doublezero shred multicast UDP into the `xsks_map` AF_XDP socket map. The userspace `doublezero_xdp_rx` binary loads the compiled object via `aya::Ebpf::load_file` and attaches the `doublezero_xdp_redirect` XDP program to the configured NIC. See [`doublezero-xdp-ebpf/SPEC.md`](doublezero-xdp-ebpf/SPEC.md) for the full classifier policy, header layout, and constants.
 
 ## Requirements
 
