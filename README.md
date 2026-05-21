@@ -50,6 +50,35 @@ Relevant feature state during capture:
 - `large-receive-offload`: off
 - `rx-vlan-offload`: on
 
+## DoubleZero Edge / Seat-Specific Values
+
+This repository documents the DoubleZero packet shape and the local setup used for testing, but the exact underlay and multicast values are not universal. They depend on the DoubleZero edge/seat allocated to the machine or device.
+
+At minimum, expect these values to be seat-specific:
+
+- Outer GRE source IP: the remote DoubleZero edge endpoint.
+- Outer GRE destination IP: the local public IP for this host/seat.
+- Inner shred multicast destination: the multicast group assigned for the DoubleZero feed.
+- Kernel multicast interface/group used by `doublezero_kernel_rx`, for example `doublezero1` and `233.84.178.12` on the tested setup.
+
+The current eBPF classifier has the accepted inner multicast destinations hardcoded in [`doublezero-xdp-ebpf/src/main.rs`](doublezero-xdp-ebpf/src/main.rs):
+
+```rust
+const INNER_SHRED_MCAST: u32 = u32::from_be_bytes([233, 84, 178, 1]);
+const INNER_SHRED_MCAST_ALT: u32 = u32::from_be_bytes([233, 84, 178, 12]);
+```
+
+To use a different DoubleZero edge/seat, update those constants to include the multicast destination assigned to that seat, then rebuild the eBPF object:
+
+```bash
+cargo +nightly build --release \
+  --target bpfel-unknown-none \
+  -Z build-std=core \
+  -p doublezero-xdp-ebpf
+```
+
+The same seat-specific addresses must also be reflected in the launcher/benchmark environment, especially `FDIR_SRC_IP`, `FDIR_DST_IP`, `KERNEL_GROUP`, and `DZ_CLIENT_IP`. A more portable future version should move the multicast allowlist into a BPF map populated by userspace instead of requiring an eBPF rebuild.
+
 ## Build
 
 Build the userspace binaries (host target):
@@ -77,7 +106,7 @@ This is the default path the `doublezero_xdp_rx` binary searches when neither `-
 
 ## Run
 
-> **Important:** Before running, edit `run_doublezero_rx.sh` and `run_doublezero_rx_bench.sh` to set `FDIR_SRC_IP`, `FDIR_DST_IP`, and `DZ_CLIENT_IP` to your own DoubleZero source/destination IPs. The defaults in those scripts are placeholders and must be replaced (either inline or by exporting the env vars before launching).
+> **Important:** Before running, set the DoubleZero edge/seat-specific values for your allocation. At minimum, edit `run_doublezero_rx.sh` and `run_doublezero_rx_bench.sh`, or export env vars, for `FDIR_SRC_IP`, `FDIR_DST_IP`, `KERNEL_GROUP`, and `DZ_CLIENT_IP`. If your assigned shred multicast destination is not one of the hardcoded eBPF groups, update `INNER_SHRED_MCAST` / `INNER_SHRED_MCAST_ALT` in `doublezero-xdp-ebpf/src/main.rs` and rebuild the eBPF object before launching.
 
 ```bash
 ./run_doublezero_rx.sh
