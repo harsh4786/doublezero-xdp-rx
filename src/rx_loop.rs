@@ -148,8 +148,8 @@ fn rx_path_bench_enabled() -> bool {
 fn xdp_rx_hot_path_observability_enabled() -> bool {
     *XDP_RX_HOT_PATH_OBSERVABILITY_ENABLED.get_or_init(|| {
         env::var("XDP_RX_HOT_PATH_OBSERVABILITY")
-            .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
-            .unwrap_or(true)
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false)
     })
 }
 
