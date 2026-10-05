@@ -13,7 +13,7 @@ use agave_xdp_rx::{
 };
 use aya::{
     Ebpf,
-    programs::{Xdp, xdp::XdpFlags},
+    programs::{Xdp, XdpMode},
 };
 use clap::{Parser, ValueEnum};
 
@@ -134,12 +134,12 @@ fn load_doublezero_xdp_program(
         .try_into()?;
     program.load()?;
 
-    let flags = match attach_mode {
-        AttachMode::Auto => XdpFlags::default(),
-        AttachMode::Skb => XdpFlags::SKB_MODE,
-        AttachMode::Drv => XdpFlags::DRV_MODE,
+    let mode = match attach_mode {
+        AttachMode::Auto => XdpMode::Default,
+        AttachMode::Skb => XdpMode::Skb,
+        AttachMode::Drv => XdpMode::Driver,
     };
-    program.attach(iface, flags)?;
+    program.attach(iface, mode)?;
 
     Ok(ebpf)
 }
