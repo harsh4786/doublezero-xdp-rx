@@ -36,7 +36,7 @@ struct Args {
     bpf_object: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = AttachMode::Drv)]
     attach_mode: AttachMode,
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     zero_copy: bool,
     #[arg(long, default_value_t = 100)]
     packet_log_limit: u64,

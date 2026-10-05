@@ -7,6 +7,7 @@ DEV="${DEV:-enp1s0f0}"
 QUEUE="${QUEUE:-3}"
 CPU="${CPU:-3}"
 ATTACH_MODE="${ATTACH_MODE:-drv}"
+ZERO_COPY="${ZERO_COPY:-true}"
 BPF_OBJECT="${BPF_OBJECT:-${DOUBLEZERO_XDP_BPF_OBJECT:-$ROOT_DIR/target/bpfel-unknown-none/release/doublezero-xdp-ebpf}}"
 BIN="${BIN:-$ROOT_DIR/target/release/doublezero_xdp_rx}"
 LOG="${LOG:-/tmp/doublezero-rx.log}"
@@ -144,12 +145,14 @@ wait_for_doublezero_ready() {
 
 start_receiver() {
     local attach_mode="$1"
+    local zero_copy="$2"
 
     RUST_LOG="${RUST_LOG_VALUE}" RX_PATH_BENCH="${RX_PATH_BENCH_VALUE}" "${BIN}" \
         --iface "${DEV}" \
         --queue "${QUEUE}" \
         --cpu "${CPU}" \
         --attach-mode "${attach_mode}" \
+        --zero-copy "${zero_copy}" \
         --bpf-object "${BPF_OBJECT}" \
         --packet-log-limit "${PACKET_LOG_LIMIT}" \
         >"${LOG}" 2>&1 &
@@ -196,7 +199,7 @@ rm -f "${LOG}"
 truncate -s 0 "${LOG}"
 emit_startup_snapshot "pre-launch"
 wait_for_doublezero_ready
-start_receiver "${ATTACH_MODE}"
+start_receiver "${ATTACH_MODE}" "${ZERO_COPY}"
 
 deadline=$((SECONDS + WAIT_TIMEOUT_SECS))
 while (( SECONDS < deadline )); do
@@ -207,11 +210,13 @@ while (( SECONDS < deadline )); do
     if ! kill -0 "${PID}" 2>/dev/null; then
         if [[ "${ATTACH_MODE}" == "drv" && "${ATTACH_RETRY_ON_DRV_BUSY}" == "1" ]] && \
             grep -q 'bpf_link_create.*ResourceBusy' "${LOG}" 2>/dev/null; then
-            echo "[startup] drv attach busy; retrying with skb"
+            # Generic (skb) XDP cannot bind AF_XDP in zero-copy mode.
+            echo "[startup] drv attach busy; retrying with skb (copy mode)"
             rm -f "${LOG}"
             truncate -s 0 "${LOG}"
-            start_receiver "skb"
+            start_receiver "skb" "false"
             ATTACH_MODE="skb"
+            ZERO_COPY="false"
             deadline=$((SECONDS + WAIT_TIMEOUT_SECS))
             continue
         fi
