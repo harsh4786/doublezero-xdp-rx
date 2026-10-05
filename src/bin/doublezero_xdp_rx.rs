@@ -13,7 +13,7 @@ use agave_xdp_rx::{
 };
 use aya::{
     Ebpf,
-    programs::{Xdp, xdp::XdpFlags},
+    programs::{Xdp, XdpMode},
 };
 use clap::{Parser, ValueEnum};
 
@@ -36,7 +36,7 @@ struct Args {
     bpf_object: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = AttachMode::Drv)]
     attach_mode: AttachMode,
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     zero_copy: bool,
     #[arg(long, default_value_t = 100)]
     packet_log_limit: u64,
@@ -134,12 +134,12 @@ fn load_doublezero_xdp_program(
         .try_into()?;
     program.load()?;
 
-    let flags = match attach_mode {
-        AttachMode::Auto => XdpFlags::default(),
-        AttachMode::Skb => XdpFlags::SKB_MODE,
-        AttachMode::Drv => XdpFlags::DRV_MODE,
+    let mode = match attach_mode {
+        AttachMode::Auto => XdpMode::Default,
+        AttachMode::Skb => XdpMode::Skb,
+        AttachMode::Drv => XdpMode::Driver,
     };
-    program.attach(iface, flags)?;
+    program.attach(iface, mode)?;
 
     Ok(ebpf)
 }

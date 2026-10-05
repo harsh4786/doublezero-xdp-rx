@@ -30,6 +30,7 @@ DEV="${DEV:-enp1s0f0}"
 QUEUE="${QUEUE:-3}"
 CPU="${CPU:-4}"
 ATTACH_MODE="${ATTACH_MODE:-drv}"
+ZERO_COPY="${ZERO_COPY:-true}"
 XDP_PACKET_LOG_LIMIT="${XDP_PACKET_LOG_LIMIT:-0}"
 
 case "$BENCH_MODE" in
@@ -267,7 +268,7 @@ if (( RUN_XDP == 1 )); then
     emit_startup_snapshot "before xdp launch"
     echo "[*] Running XDP/AF_XDP Doublezero RX for ${BENCH_DURATION_SECS}s..."
     stop_pid_file /tmp/doublezero-rx.pid
-    DEV="$DEV" QUEUE="$QUEUE" CPU="$CPU" ATTACH_MODE="$ATTACH_MODE" LOG="$XDP_LOG" BIN="$XDP_BIN" \
+    DEV="$DEV" QUEUE="$QUEUE" CPU="$CPU" ATTACH_MODE="$ATTACH_MODE" ZERO_COPY="$ZERO_COPY" LOG="$XDP_LOG" BIN="$XDP_BIN" \
         RX_PATH_BENCH=1 PACKET_LOG_LIMIT="$XDP_PACKET_LOG_LIMIT" \
         WAIT_DOUBLEZERO_READY="$XDP_WAIT_DOUBLEZERO_READY" \
         SHOW_STARTUP_LOGS="$SHOW_STARTUP_LOGS" SHOW_XDPDUMP_LOGS="$SHOW_XDPDUMP_LOGS" \

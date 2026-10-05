@@ -44,7 +44,7 @@ For every packet, the program walks fixed offsets and falls through to `XDP_PASS
 | 6    | Inner IPv4 protocol: TCP → pass; not UDP → pass              | `XDP_PASS`        |
 | 7    | Inner UDP dport == `5765` (heartbeat) → pass                 | `XDP_PASS`        |
 | 8    | Inner UDP dport == `7733` (shred)                            | `XDP_PASS` if not |
-| 9    | Inner IPv4 dst ∈ { `233.84.178.1`, `233.84.178.12` }         | `XDP_PASS` if not |
+| 9    | Inner IPv4 dst ∈ Doublezero Edge shred groups (see below)    | `XDP_PASS` if not |
 | 10   | `SOCKS.redirect(ctx.rx_queue_index, 0)`                      | redirect to AF_XDP |
 
 Step 10 falls back to `XDP_PASS` if `redirect` fails (e.g. no XSK registered for this queue), so an unarmed queue cannot black-hole traffic.
@@ -70,8 +70,15 @@ Anything outside this shape (IPv4 options, GRE checksum/key/sequence, inner IPv6
 |------------------------|-------------------|-------------------------------------------|
 | `INNER_SHRED_PORT`     | 7733              | Doublezero shred UDP dport                |
 | `INNER_HEARTBEAT_PORT` | 5765              | Doublezero heartbeat UDP dport (passed)   |
-| `INNER_SHRED_MCAST`    | 233.84.178.1      | Accepted shred multicast destination      |
-| `INNER_SHRED_MCAST_ALT`| 233.84.178.12     | Accepted shred multicast destination (alt)|
+| `INNER_SHRED_MCAST`      | 233.84.178.1    | `edge-solana-shreds` (leader shreds)      |
+| `INNER_SHRED_MCAST_ALT`  | 233.84.178.12   | retransmit EU                             |
+| `INNER_SHRED_MCAST_APAC` | 233.84.178.13   | retransmit APAC                           |
+| `INNER_SHRED_MCAST_AMER` | 233.84.178.14   | retransmit Americas                       |
+| `INNER_SHRED_MCAST_ROOT` | 233.84.178.16   | root shreds                               |
+
+These are the five shred groups Doublezero Edge publishes (`doublezero multicast group list`). The
+leader and EU checks come first so existing seats keep the same compare path; LLVM folds the five
+compares into a single range check plus bitmask test.
 
 Change these in `src/main.rs` if the Doublezero feed moves to a different port or group.
 

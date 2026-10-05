@@ -10,4 +10,4 @@ name = "doublezero-xdp-ebpf"
 path = "src/main.rs"
 
 [dependencies]
-aya-ebpf = "0.1.1"
+aya-ebpf = "0.2.1"
