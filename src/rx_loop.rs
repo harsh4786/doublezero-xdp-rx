@@ -601,6 +601,9 @@ pub fn doublezero_xdp_rx_loop(
                 .write_batch(umem, &frames[..recycled])
                 .unwrap_or(0)
         } else {
+            // Idle poll: if the driver starved on an empty fill ring it stops posting RX
+            // descriptors and raises need_wakeup; nothing arrives until we kick it.
+            kick(&fill_ring);
             0
         };
         if hot_path_observability {

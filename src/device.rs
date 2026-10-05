@@ -11,7 +11,7 @@ use std::{
 
 use libc::{
     AF_INET, IF_NAMESIZE, SIOCETHTOOL, SOCK_DGRAM, SYS_ioctl, XDP_RING_NEED_WAKEUP, ifreq, mmap,
-    munmap, sendto, socket, syscall, xdp_ring_offset,
+    munmap, recvfrom, socket, syscall, xdp_ring_offset,
 };
 
 use crate::umem::{Frame, FrameOffset, SliceUmem, Umem};
@@ -407,9 +407,20 @@ impl<F: Frame> RxFillRing<F> {
         unsafe { (*self.mmap.flags).load(Ordering::Relaxed) & XDP_RING_NEED_WAKEUP != 0 }
     }
 
+    /// Wake the driver to refill its RX descriptors from the fill ring. RX wakeups go through
+    /// recvfrom(): the kernel only acts on XDP_WAKEUP_RX from the recvmsg path, sendto() acts on
+    /// the TX flag.
     pub fn wake(&self) -> Result<u64, io::Error> {
-        let result =
-            unsafe { sendto(self._fd, ptr::null(), 0, libc::MSG_DONTWAIT, ptr::null(), 0) };
+        let result = unsafe {
+            recvfrom(
+                self._fd,
+                ptr::null_mut(),
+                0,
+                libc::MSG_DONTWAIT,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
         if result < 0 {
             return Err(io::Error::last_os_error());
         }
