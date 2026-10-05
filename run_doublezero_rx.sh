@@ -14,9 +14,13 @@ LOG="${LOG:-/tmp/doublezero-rx.log}"
 PID_FILE="${PID_FILE:-/tmp/doublezero-rx.pid}"
 
 FDIR_LOC="${FDIR_LOC:-2043}"
-FDIR_SRC_IP="${FDIR_SRC_IP:-<your-src-ip>}"
-FDIR_DST_IP="${FDIR_DST_IP:-<your-dst-ip>}"
+# "auto" reads the outer GRE endpoints from TUNNEL_IFACE and reinstalls the rule if the seat moves
+# to another Doublezero device. Set explicit IPs to pin a static rule instead.
+FDIR_SRC_IP="${FDIR_SRC_IP:-auto}"
+FDIR_DST_IP="${FDIR_DST_IP:-auto}"
 FDIR_ACTION_QUEUE="${FDIR_ACTION_QUEUE:-3}"
+FDIR_WATCH_SECS="${FDIR_WATCH_SECS:-2}"
+TUNNEL_IFACE="${TUNNEL_IFACE:-doublezero1}"
 
 WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-20}"
 RUST_LOG_VALUE="${RUST_LOG:-warn,agave_xdp_rx::rx_loop=info}"
@@ -35,6 +39,10 @@ ATTACH_RETRY_ON_DRV_BUSY="${ATTACH_RETRY_ON_DRV_BUSY:-0}"
 WAIT_DOUBLEZERO_READY="${WAIT_DOUBLEZERO_READY:-1}"
 DOUBLEZERO_WAIT_TIMEOUT_SECS="${DOUBLEZERO_WAIT_TIMEOUT_SECS:-60}"
 FDIR_INSTALLED=0
+FDIR_AUTO=0
+if [[ "${FDIR_SRC_IP}" == "auto" || "${FDIR_DST_IP}" == "auto" ]]; then
+    FDIR_AUTO=1
+fi
 
 cleanup() {
     local pid=""
@@ -55,6 +63,11 @@ cleanup() {
     if [[ -n "${XDPDUMP_BG_PID:-}" ]]; then
         kill "${XDPDUMP_BG_PID}" 2>/dev/null || true
         wait "${XDPDUMP_BG_PID}" 2>/dev/null || true
+    fi
+
+    if [[ -n "${FDIR_WATCH_PID:-}" ]]; then
+        kill "${FDIR_WATCH_PID}" 2>/dev/null || true
+        wait "${FDIR_WATCH_PID}" 2>/dev/null || true
     fi
 
     if [[ "${FDIR_INSTALLED:-0}" == "1" ]]; then
@@ -141,6 +154,93 @@ wait_for_doublezero_ready() {
     fi
     ip route show >&2 || true
     exit 1
+}
+
+# Prints "<remote> <local>" for the GRE tunnel, i.e. the outer src/dst of Doublezero traffic.
+# Prints nothing (and succeeds) while the tunnel is down, so set -e does not end the watcher.
+tunnel_endpoints() {
+    ip -d -o link show dev "${TUNNEL_IFACE}" 2>/dev/null |
+        awk '{ for (i = 1; i < NF; i++) if ($i == "link/gre" && $(i + 2) == "peer") { print $(i + 3), $(i + 1); exit } }' ||
+        true
+}
+
+resolve_fdir_endpoints() {
+    if [[ "$FDIR_AUTO" == "0" ]]; then
+        return
+    fi
+
+    local endpoints
+    endpoints="$(tunnel_endpoints)"
+    if [[ -z "$endpoints" ]]; then
+        echo "cannot read GRE endpoints from ${TUNNEL_IFACE}; set FDIR_SRC_IP and FDIR_DST_IP" >&2
+        exit 1
+    fi
+    read -r FDIR_SRC_IP FDIR_DST_IP <<<"$endpoints"
+}
+
+install_fdir_rule() {
+    ethtool -U "${DEV}" delete "${FDIR_LOC}" >/dev/null 2>&1 || true
+    ethtool -U "${DEV}" flow-type ip4 \
+        src-ip "${FDIR_SRC_IP}" \
+        dst-ip "${FDIR_DST_IP}" \
+        action "${FDIR_ACTION_QUEUE}" \
+        loc "${FDIR_LOC}"
+}
+
+# Every online CPU except the RX core, so the watcher never preempts the busy-poll loop.
+cpus_except_rx_core() {
+    local online range lo hi cpu out=""
+    online="$(cat /sys/devices/system/cpu/online 2>/dev/null)" || return
+    for range in ${online//,/ }; do
+        lo="${range%-*}"
+        hi="${range#*-}"
+        for ((cpu = lo; cpu <= hi; cpu++)); do
+            if [[ "$cpu" != "$CPU" ]]; then
+                out+="${out:+,}${cpu}"
+            fi
+        done
+    done
+    echo "$out"
+}
+
+# A Doublezero seat can move to another device (dynamic seat allocation, reprovisioning), which
+# changes the outer GRE endpoints. A stale rule steers the feed away from the AF_XDP queue.
+watch_tunnel_endpoints() {
+    local endpoints src dst
+    while kill -0 "${PID}" 2>/dev/null; do
+        sleep "${FDIR_WATCH_SECS}"
+        endpoints="$(tunnel_endpoints)"
+        if [[ -z "$endpoints" ]]; then
+            continue
+        fi
+        read -r src dst <<<"$endpoints"
+        if [[ "$src" == "$FDIR_SRC_IP" && "$dst" == "$FDIR_DST_IP" ]]; then
+            continue
+        fi
+        echo "[fdir] ${TUNNEL_IFACE} endpoints changed: src ${FDIR_SRC_IP} -> ${src}; reinstalling rule loc ${FDIR_LOC}"
+        FDIR_SRC_IP="$src"
+        FDIR_DST_IP="$dst"
+        install_fdir_rule || echo "[fdir] failed to reinstall rule on ${DEV}" >&2
+    done
+}
+
+start_fdir_watch() {
+    if [[ "$FDIR_AUTO" == "0" || "$FDIR_WATCH_SECS" == "0" ]]; then
+        return
+    fi
+
+    local cpus=""
+    if command -v taskset >/dev/null 2>&1; then
+        cpus="$(cpus_except_rx_core)"
+    fi
+    if [[ -n "$cpus" ]]; then
+        watch_tunnel_endpoints &
+        FDIR_WATCH_PID="$!"
+        taskset -a -p -c "$cpus" "${FDIR_WATCH_PID}" >/dev/null 2>&1 || true
+    else
+        watch_tunnel_endpoints &
+        FDIR_WATCH_PID="$!"
+    fi
 }
 
 start_receiver() {
@@ -239,12 +339,8 @@ fi
 
 emit_startup_snapshot "xdp rx armed"
 
-ethtool -U "${DEV}" delete "${FDIR_LOC}" >/dev/null 2>&1 || true
-ethtool -U "${DEV}" flow-type ip4 \
-    src-ip "${FDIR_SRC_IP}" \
-    dst-ip "${FDIR_DST_IP}" \
-    action "${FDIR_ACTION_QUEUE}" \
-    loc "${FDIR_LOC}"
+resolve_fdir_endpoints
+install_fdir_rule
 FDIR_INSTALLED=1
 
 echo "doublezero_xdp_rx running with pid ${PID}"
@@ -255,6 +351,7 @@ else
     echo "fdir: ${DEV} src=${FDIR_SRC_IP} dst=${FDIR_DST_IP} -> queue ${FDIR_ACTION_QUEUE} loc ${FDIR_LOC}"
 fi
 
+start_fdir_watch
 start_xdpdump_demo_capture
 
 wait "${PID}"

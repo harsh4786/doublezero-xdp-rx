@@ -123,10 +123,21 @@ The launcher script applies the same rule automatically after AF_XDP is armed:
 
 ```bash
 FDIR_LOC=2043
-FDIR_SRC_IP=<your-src-ip>
-FDIR_DST_IP=<your-dst-ip>
+FDIR_SRC_IP=auto          # remote Doublezero device, read from doublezero1
+FDIR_DST_IP=auto          # this host's public IP, read from doublezero1
 FDIR_ACTION_QUEUE=3
+FDIR_WATCH_SECS=2         # how often to re-check the tunnel endpoints; 0 disables
+TUNNEL_IFACE=doublezero1
 ```
+
+With `auto`, the launcher reads the outer endpoints from `ip -d link show doublezero1`
+(`link/gre <local> peer <remote>`). Doublezero can move a seat to another device (dynamic seat
+allocation, reprovisioning), which changes the remote endpoint; a stale rule silently steers the
+feed away from the AF_XDP queue. The launcher therefore re-reads the endpoints every
+`FDIR_WATCH_SECS` and reinstalls the rule at the same `loc` when they change. The watcher is
+pinned off the RX core (`CPU`) so it never preempts the busy-poll loop.
+
+Set explicit `FDIR_SRC_IP` / `FDIR_DST_IP` to pin a static rule; no watcher runs then.
 
 Important ixgbe note:
 

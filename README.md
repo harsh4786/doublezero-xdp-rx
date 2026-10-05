@@ -81,7 +81,7 @@ cargo +nightly build --release \
   -p doublezero-xdp-ebpf
 ```
 
-The same seat-specific addresses must also be reflected in the launcher/benchmark environment, especially `FDIR_SRC_IP`, `FDIR_DST_IP`, `KERNEL_GROUP`, and `DZ_CLIENT_IP`. A more portable future version should move the multicast allowlist into a BPF map populated by userspace instead of requiring an eBPF rebuild.
+The launcher reads the outer GRE endpoints for the FDIR rule from `doublezero1` (`FDIR_SRC_IP=auto` / `FDIR_DST_IP=auto`) and reinstalls the rule if the seat moves to another device; see [SETUP.md](SETUP.md#fdir-rule). `KERNEL_GROUP` for the benchmark is still seat-specific. A more portable future version should move the multicast allowlist into a BPF map populated by userspace instead of requiring an eBPF rebuild.
 
 ## Build
 
@@ -110,7 +110,7 @@ This is the default path the `doublezero_xdp_rx` binary searches when neither `-
 
 ## Run
 
-> **Important:** Before running, set the Doublezero edge/seat-specific values for your allocation. At minimum, edit `run_doublezero_rx.sh` and `run_doublezero_rx_bench.sh`, or export env vars, for `FDIR_SRC_IP`, `FDIR_DST_IP`, `KERNEL_GROUP`, and `DZ_CLIENT_IP`. If your assigned shred multicast destination is not one of the hardcoded eBPF groups, add it next to the `INNER_SHRED_MCAST_*` constants in `doublezero-xdp-ebpf/src/main.rs` and rebuild the eBPF object before launching.
+> **Important:** Before running, set the Doublezero edge/seat-specific values for your allocation. The FDIR endpoints are read from `doublezero1` by default; set `KERNEL_GROUP` for the benchmark, and set `FDIR_SRC_IP` / `FDIR_DST_IP` only to pin a static rule. If your assigned shred multicast destination is not one of the hardcoded eBPF groups, add it next to the `INNER_SHRED_MCAST_*` constants in `doublezero-xdp-ebpf/src/main.rs` and rebuild the eBPF object before launching.
 
 ```bash
 ./run_doublezero_rx.sh
