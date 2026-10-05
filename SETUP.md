@@ -56,7 +56,7 @@ Current working assumptions:
 - queue used for AF_XDP: `3`
 - XDP attach mode: `drv`
 - Doublezero shred UDP port: `7733`
-- expected multicast destination: `233.84.178.12`
+- expected multicast destination: `233.84.178.12` (the XDP classifier accepts all Edge shred groups: `.1`, `.12`, `.13`, `.14`, `.16`)
 
 Doublezero shred delivery shape:
 
@@ -98,6 +98,7 @@ The userspace launcher in this repo defaults to:
 - `QUEUE=3`
 - `CPU=3`
 - `ATTACH_MODE=drv`
+- `ZERO_COPY=true` (set `false` where the driver/mode cannot bind AF_XDP zero-copy; the `skb` fallback uses copy mode automatically)
 
 The XDP RX benchmark defaults to:
 
