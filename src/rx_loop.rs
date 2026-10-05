@@ -92,19 +92,23 @@ impl RxBenchHist {
         }
     }
 
-    fn percentile_ns(&self, pct: u64) -> u64 {
+    /// Sorts the samples in place once for all requested percentiles. Samples between calls are
+    /// appended to an already-sorted prefix, which the stable sort merges in near-linear time.
+    fn percentiles_ns<const N: usize>(&mut self, pcts: &[u64; N]) -> [u64; N] {
         if self.values_ns.is_empty() {
-            return 0;
+            return [0; N];
         }
-        let mut values = self.values_ns.clone();
-        values.sort_unstable();
-        let idx = values
-            .len()
-            .saturating_mul(pct as usize)
-            .div_ceil(100)
-            .saturating_sub(1)
-            .min(values.len().saturating_sub(1));
-        values[idx]
+        self.values_ns.sort();
+        let values = &self.values_ns;
+        pcts.map(|pct| {
+            let idx = values
+                .len()
+                .saturating_mul(pct as usize)
+                .div_ceil(100)
+                .saturating_sub(1)
+                .min(values.len().saturating_sub(1));
+            values[idx]
+        })
     }
 
     fn avg_ns(&self) -> u64 {
@@ -178,6 +182,7 @@ fn rx_path_bench_record(end_to_chan_ns: u64, dropped: bool) {
             None => true,
         };
         if should_log && state.end_to_chan_hist.samples > 0 {
+            let [p50, p90, p95, p99] = state.cumulative_hist.percentiles_ns(&[50, 90, 95, 99]);
             log::info!(
                 "RX_PATH_BENCH: mode=doublezero_xdp_rx stage=af_xdp_ring_to_packet_handled samples={} window_samples={} packets={} window_packets={} drops={} window_drops={} min_ns={} p50_ns={} p90_ns={} p95_ns={} p99_ns={} avg_ns={} max_ns={}",
                 state.cumulative_hist.samples,
@@ -187,10 +192,10 @@ fn rx_path_bench_record(end_to_chan_ns: u64, dropped: bool) {
                 state.cumulative_drops,
                 state.drops,
                 state.cumulative_hist.min_ns,
-                state.cumulative_hist.percentile_ns(50),
-                state.cumulative_hist.percentile_ns(90),
-                state.cumulative_hist.percentile_ns(95),
-                state.cumulative_hist.percentile_ns(99),
+                p50,
+                p90,
+                p95,
+                p99,
                 state.cumulative_hist.avg_ns(),
                 state.cumulative_hist.max_ns,
             );
