@@ -18,8 +18,13 @@ const GRE_PROTO_IPV4: u16 = 0x0800;
 const IPV4_MIN_IHL: u8 = 0x45;
 const INNER_SHRED_PORT: u16 = 7733;
 const INNER_HEARTBEAT_PORT: u16 = 5765;
-const INNER_SHRED_MCAST: u32 = u32::from_be_bytes([233, 84, 178, 1]);
-const INNER_SHRED_MCAST_ALT: u32 = u32::from_be_bytes([233, 84, 178, 12]);
+// DZ Edge `edge-solana-*` shred groups. Leader and EU retransmit are checked first so existing
+// seats keep the same compare path.
+const INNER_SHRED_MCAST: u32 = u32::from_be_bytes([233, 84, 178, 1]); // leader shreds
+const INNER_SHRED_MCAST_ALT: u32 = u32::from_be_bytes([233, 84, 178, 12]); // retransmit EU
+const INNER_SHRED_MCAST_APAC: u32 = u32::from_be_bytes([233, 84, 178, 13]); // retransmit APAC
+const INNER_SHRED_MCAST_AMER: u32 = u32::from_be_bytes([233, 84, 178, 14]); // retransmit Americas
+const INNER_SHRED_MCAST_ROOT: u32 = u32::from_be_bytes([233, 84, 178, 16]); // root shreds
 #[map(name = "xsks_map")]
 static SOCKS: XskMap = XskMap::pinned(64, 0);
 
@@ -78,7 +83,12 @@ fn try_doublezero_xdp_redirect(ctx: &XdpContext) -> Result<u32, ()> {
     }
 
     let dst_addr = read_be_u32(ctx, inner_ip_start + 16)?;
-    if dst_addr != INNER_SHRED_MCAST && dst_addr != INNER_SHRED_MCAST_ALT {
+    if dst_addr != INNER_SHRED_MCAST
+        && dst_addr != INNER_SHRED_MCAST_ALT
+        && dst_addr != INNER_SHRED_MCAST_APAC
+        && dst_addr != INNER_SHRED_MCAST_AMER
+        && dst_addr != INNER_SHRED_MCAST_ROOT
+    {
         return Ok(xdp_action::XDP_PASS);
     }
 
